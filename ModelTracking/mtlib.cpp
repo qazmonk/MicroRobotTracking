@@ -122,7 +122,6 @@ mtlib::Model::Model(Mat temp, Point init_center, RotatedRect init_bounding, doub
 
 }
 
-
 Point mtlib::Model::getCenter() {
   return centers[centers.size()-1];
 }
@@ -178,7 +177,14 @@ Mat mtlib::Model::getRotatedTemplate(double a) {
 
 RotatedRect mtlib::Model::getBoundingBox(int t) {
   double rotate = rotations[t];
-  return RotatedRect(bounding.center, bounding.size, bounding.angle+rotate);
+  return RotatedRect(centers[t], bounding.size, bounding.angle-rotate);
+}
+void mtlib::Model::drawBoundingBox(Mat frame, int t, Scalar c) {
+  Point2f verticies[4];
+  getBoundingBox(t).points(verticies);
+
+  for (int i = 0; i < 4; i++)
+    line(frame, verticies[i], verticies[(i+1)%4], c, 2);
 }
 void mtlib::filterAndFindContours(Mat frame, vector< vector<Point> > * contours, 
 				  vector<Vec4i> * hierarchy)

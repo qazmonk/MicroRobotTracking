@@ -36,6 +36,8 @@ namespace mtlib {
     void drawModel(cv::Mat dst, int t);
     //Returns the appropriate rotated bounding box for some time index t
     cv::RotatedRect getBoundingBox(int t);
+    //Draws the bounding box for some time index t on a mat frame with color c
+    void drawBoundingBox(cv::Mat frame, int t, cv::Scalar c);
     //Constructs a new model given a template, a center, a rotated bounding box, and the area
     //of the contour. This involves creating a vector of rotated versions of the model
     Model(cv::Mat temp, cv::Point center, cv::RotatedRect bounding, double a);

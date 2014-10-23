@@ -65,13 +65,15 @@ int main(int argc, char* argv[]) {
 
     filterAndFindContours(video[i], &contours, &hierarchy);
     
-    Mat dst = Mat::zeros(video[i].size(), CV_8UC1);
+    Mat dst = Mat::zeros(video[i].size(), CV_8UC3);
 
 
     drawContoursAndFilter(dst, &contours, &hierarchy, minArea, maxArea);
 
-    for (int n = 0; n < models.size(); n++)
+    for (int n = 0; n < models.size(); n++) {
+      models[n].drawBoundingBox(dst, i, Scalar(255, 0, 0));
       models[n].drawModel(dst, i);
+    }
 
 
     out.push_back(dst);
