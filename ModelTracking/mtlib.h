@@ -30,16 +30,20 @@ namespace mtlib {
     cv::Mat getRotatedTemplate(double angle);
     //displays all the rotations of the model, mostly for debugging
     void showModel();
-    //draws a dot for the center and a line for the orientation at some time t on the image dst
+    //draws a dot for the center and a line for the orientation at some time 
+    //index t on the image dst
     void drawModel(cv::Mat dst, int t);
-    //constructs a new model given a template and a center. This involved created a vector of 
-    //rotated versions of the model
-    Model(cv::Mat temp, cv::Point center);
+    //Returns the appropriate rotated bounding box for some time index t
+    cv::RotatedRect getBoundingBox(int t);
+    //constructs a new model given a template, a center, and a rotated bounding box
+    //This involves creating a vector of rotated versions of the model
+    Model(cv::Mat temp, cv::Point center, cv::RotatedRect bounding);
 
   private:
     const static int numTemplates = 360;
     cv::Point centerToCorner;
     const static double searchEnlargement;
+    cv::RotatedRect bounding;
   };
 
 
@@ -104,6 +108,11 @@ namespace mtlib {
   //vectors. Each line contains three entries (position and orientation) for each model in the
   //given vector.
   void writeFile(const char* filename, std::vector<mtlib::Model> models);
+
+  //Takes a frame and a vector of objects found in that frame and prompts the user to select
+  //models from that frame.
+  //returns a vector containing the indicies of the selected models
+  std::vector<int> selectObjects(cv::Mat frame, std::vector<mtlib::Model> * models);
 }
 
 #endif

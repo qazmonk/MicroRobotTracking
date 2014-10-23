@@ -29,21 +29,21 @@ int main(int argc, char* argv[]) {
 
   captureVideo(argv[1], &video, &fps, &S, &ex);
   
-  cout << "getting min and max" << endl;
+
   Point minMax = getMinAndMaxAreas(video[0]);
-  cout << "got em" << endl;
+
   int minArea = minMax.x;
   int maxArea = minMax.y;
   out.reserve(video.size());
 
-  cout << "hey" << endl;
+
   mtlib::generateModels(video[0], &models, minArea, maxArea);
-  
+  mtlib::selectObjects(video[0], &models);
   namedWindow(window, CV_WINDOW_AUTOSIZE);
-  cout << "hey gurl i'm talking to u" << endl;
+
   for (int i = 0; i < video.size(); i++) {
 
-    cout << "update dem models" << endl;
+
     if (i > 0) {
       cout << "calculating frame " << i << endl;
       updateModels(video[i], &models, minArea, maxArea);
@@ -53,18 +53,18 @@ int main(int argc, char* argv[]) {
     vector< vector<Point> > contours;
     vector< Vec4i > hierarchy;
     
-    cout << "ohhh yeah filter it" << endl;
+
     filterAndFindContours(video[i], &contours, &hierarchy);
     
     Mat dst = Mat::zeros(video[i].size(), CV_8UC1);
 
-    cout << "finish it up with a draw" << endl;
+
     drawContoursAndFilter(dst, &contours, &hierarchy, minArea, maxArea);
 
     for (int n = 0; n < models.size(); n++)
       models[n].drawModel(dst, i);
 
-    cout << "push it back" << endl;
+
     out.push_back(dst);
     
   }

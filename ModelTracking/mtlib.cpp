@@ -89,7 +89,9 @@ Mat enlargeFromCenter(Mat img, Size ns) {
   return enlarged;
 }
 
-mtlib::Model::Model(Mat temp, Point init_center) {
+mtlib::Model::Model(Mat temp, Point init_center, RotatedRect init_bounding) {
+  
+  bounding = init_bounding;
 
   templates.reserve(numTemplates);
   int c = (int)sqrt(temp.rows*temp.rows + temp.cols*temp.cols);
@@ -170,6 +172,11 @@ Mat mtlib::Model::getRotatedTemplate(double a) {
   int index = a/360.0*numTemplates;
   return templates[index].clone();
   
+}
+
+RotatedRect mtlib::Model::getBoundingBox(int t) {
+  double rotate = rotations[t];
+  return RotatedRect(bounding.center, bounding.size, bounding.angle+rotate);
 }
 void mtlib::filterAndFindContours(Mat frame, vector< vector<Point> > * contours, 
 				  vector<Vec4i> * hierarchy)
@@ -303,7 +310,8 @@ void mtlib::generateModels(Mat frame, vector<Model> * models, int minArea, int m
       cout << bb << endl;
       Mat temp(filteredContours, bb);
       Point c = getCenter(contours[i]);
-      Model m(temp, c);
+      RotatedRect rr = minAreaRect(contours[i]);
+      Model m(temp, c, rr);
       models->push_back(m);
     }
   }
@@ -416,4 +424,33 @@ void mtlib::writeFile(const char* filename, vector<Model> models) {
   }
   file.close();
 }
+namespace selectROIVars {
+  bool lastMouseButton = false;
+  vector<mtlib::Model> * modelsToSearch;
+}
+void selectROICallback(int event, int x, int y, int, void*) {
+  if (event != EVENT_LBUTTONDOWN) {
+    selectROIVars::lastMouseButton = false;
+  }
+  if (selectROIVars::lastMouseButton == false) {
+    vector<mtlib::Model> * models = selectROIVars::modelsToSearch;
+    for (int i = 0; i < models->size(); i++) {
+      
+    }
+  }
+  selectROIVars::lastMouseButton = true;
+}
+vector<int> mtlib::selectObjects(Mat frame, vector<Model> * models) {
+  namedWindow("Select ROIs", CV_WINDOW_AUTOSIZE);
+  Mat dst = frame;
 
+  for (int n = 0; n < models->size(); n++) {
+    Point2f verticies[4];
+    models->at(n).getBoundingBox(0).points(verticies);
+    for (int i = 0; i < 4; i++)
+      line(dst, verticies[i], verticies[(i+1)%4], Scalar(0, 255, 0));
+  }
+  imshow("Select ROIs", dst);
+  waitKey(0);
+  destroyWindow("Select ROIs");
+}
