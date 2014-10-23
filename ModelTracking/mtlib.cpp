@@ -8,6 +8,8 @@
 using namespace cv;
 using namespace std;
 
+int DEF_CHANNEL = 2;
+
 bool mtlib::captureVideo(char* src, vector<Mat> * dst, int* fps, Size* s, int* ex) {
 
 
@@ -184,13 +186,16 @@ void mtlib::filterAndFindContours(Mat frame, vector< vector<Point> > * contours,
   vector<Mat> rgb;
   Mat t = Mat::zeros(frame.size(), CV_8UC1);
   split(frame, rgb);
-  /*  namedWindow("r", CV_WINDOW_AUTOSIZE);
+
+  /*namedWindow("r", CV_WINDOW_AUTOSIZE);
   namedWindow("g", CV_WINDOW_AUTOSIZE);
+  namedWindow("b", CV_WINDOW_AUTOSIZE);
   imshow("r", rgb[1]);
   imshow("g", rgb[0]);
+  imshow("b", rgb[2]);
   waitKey(0);*/
 
-  adaptiveThreshold(rgb[1], t, 255, ADAPTIVE_THRESH_MEAN_C, THRESH_BINARY, 27, 5);
+  adaptiveThreshold(rgb[DEF_CHANNEL], t, 255, ADAPTIVE_THRESH_MEAN_C, THRESH_BINARY, 27, 5);
   
   findContours(t, *contours, *hierarchy, CV_RETR_LIST, CV_CHAIN_APPROX_SIMPLE);
 }
@@ -283,20 +288,19 @@ void mtlib::Model::drawModel(Mat dst, int t) {
   line(dst, c, c + v,	 Scalar(255, 255, 255));
   circle(dst, c, 4, Scalar(255, 255, 255), -1, 8, 0);
 }
-Rect clampBB(Rect bb, Size area) {
-}
+
 
 void mtlib::generateModels(Mat frame, vector<Model> * models, int minArea, int maxArea) {
   vector< vector<Point> > contours;
   vector<Vec4i> hierarchy;
   //do all contour finding, drawing and filtering
-  cout << "filter it rul gud" << endl;
+
   filterAndFindContours(frame, &contours, &hierarchy);
   Mat filteredContours = Mat::zeros(frame.size(), CV_8UC1);
-  cout << "draw it again?!?!?" << endl;
+
   drawContoursAndFilter(filteredContours, &contours, &hierarchy, minArea, maxArea);
   //go through contours looking for acceptable matches
-  cout << "find the contours" << endl;
+
   for (int i = 0; i < contours.size(); i++) {
     double consize = contourArea(contours[i]);
     if (consize > minArea && consize < maxArea) {
@@ -424,6 +428,7 @@ void mtlib::writeFile(const char* filename, vector<Model> models) {
   }
   file.close();
 }
+
 namespace selectROIVars {
   bool lastMouseButton = false;
   vector<mtlib::Model> * modelsToSearch;
@@ -453,4 +458,9 @@ vector<int> mtlib::selectObjects(Mat frame, vector<Model> * models) {
   imshow("Select ROIs", dst);
   waitKey(0);
   destroyWindow("Select ROIs");
+
+
+void mtlib::setDefaultChannel(int channel) {
+  DEF_CHANNEL = channel;
+
 }

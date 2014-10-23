@@ -66,7 +66,8 @@ namespace mtlib {
   bool writeVideo(const char* filename, std::vector<cv::Mat> frames);
 
   //Applies several filters to an image before finding the contours and storing the results
-  //in contours and hierarchy
+  //in contours and hierarchy. A channel can optionally be supplied to apply the filters to
+  //a channel other than 2
   void filterAndFindContours(cv::Mat src, std::vector< std::vector<cv::Point> > * contours,
 			     std::vector<cv::Vec4i> * hierarchy);
 
@@ -109,10 +110,15 @@ namespace mtlib {
   //given vector.
   void writeFile(const char* filename, std::vector<mtlib::Model> models);
 
+
   //Takes a frame and a vector of objects found in that frame and prompts the user to select
   //models from that frame.
   //returns a vector containing the indicies of the selected models
   std::vector<int> selectObjects(cv::Mat frame, std::vector<mtlib::Model> * models);
+
+  //Sets the channel upon which all filters will be applied to channel
+  void setDefaultChannel(int channel);
+
 }
 
 #endif

@@ -26,7 +26,11 @@ void scrub(int, void*);
 
 int main(int argc, char* argv[]) {
 
-
+  for (int i = 0; i < argc; i++) {
+    if (strncmp(argv[i], "-c", 2) == 0) {
+      mtlib::setDefaultChannel(stoi(argv[i+1]));
+    }
+  }
   captureVideo(argv[1], &video, &fps, &S, &ex);
   
 
