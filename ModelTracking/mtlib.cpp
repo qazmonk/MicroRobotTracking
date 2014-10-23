@@ -91,8 +91,8 @@ Mat enlargeFromCenter(Mat img, Size ns) {
   return enlarged;
 }
 
-mtlib::Model::Model(Mat temp, Point init_center, RotatedRect init_bounding) {
-  
+mtlib::Model::Model(Mat temp, Point init_center, RotatedRect init_bounding, double a) {
+  area = a;
   bounding = init_bounding;
 
   templates.reserve(numTemplates);
@@ -204,14 +204,14 @@ void mtlib::drawContoursAndFilter(Mat dst, vector< vector<Point> > * contours,
 				  vector<Vec4i> * hierarchy, int minArea, int maxArea)
 {
 
-  Mat contour_drawing = Mat::zeros(dst.size(), CV_8UC1);
+  Mat contour_drawing = Mat::zeros(dst.size(), dst.type());
   Scalar color = Scalar(255, 255, 255);
 
 
   //loop through contours filtering out ones that are too small or too big
   for (int i = 0; i < contours->size(); i++) {
     double consize = contourArea(contours->at(i));
-    if (consize > minArea && consize < maxArea) {
+    if (consize >= minArea && consize <= maxArea) {
       drawContours(contour_drawing, *contours, i, color, 2, 8, *hierarchy, 0, Point());
     }
   }
@@ -315,7 +315,7 @@ void mtlib::generateModels(Mat frame, vector<Model> * models, int minArea, int m
       Mat temp(filteredContours, bb);
       Point c = getCenter(contours[i]);
       RotatedRect rr = minAreaRect(contours[i]);
-      Model m(temp, c, rr);
+      Model m(temp, c, rr, consize);
       models->push_back(m);
     }
   }
@@ -432,35 +432,102 @@ void mtlib::writeFile(const char* filename, vector<Model> models) {
 namespace selectROIVars {
   bool lastMouseButton = false;
   vector<mtlib::Model> * modelsToSearch;
+  cv::Mat contours;
+  vector<bool> selected;
+}
+bool pointInRotatedRectangle(int x, int y, RotatedRect rr) {
+  Point2f verticies[4];
+  rr.points(verticies);
+  int count = 0;
+  for (int i = 0; i < 4; i++) {
+    int y_min = min(verticies[i].y, verticies[(i+1)%4].y);
+    int y_max = max(verticies[i].y, verticies[(i+1)%4].y);
+    double m = (verticies[i].y - verticies[(i+1)%4].y)/(verticies[i].x - verticies[(i+1)%4].x);
+    double delX = 1/m*(y-verticies[i].y);
+    double xp = delX+verticies[i].x;
+    if (y > y_min && y < y_max && xp >= x) 
+      count++;
+  }
+
+  return count%2 == 1;
 }
 void selectROICallback(int event, int x, int y, int, void*) {
   if (event != EVENT_LBUTTONDOWN) {
     selectROIVars::lastMouseButton = false;
+    return;
   }
+
   if (selectROIVars::lastMouseButton == false) {
+    cv::Mat frame = selectROIVars::contours.clone();
     vector<mtlib::Model> * models = selectROIVars::modelsToSearch;
+    double min_area = -1;
+    int min = -1;
     for (int i = 0; i < models->size(); i++) {
-      
+      if (pointInRotatedRectangle(x, y, models->at(i).getBoundingBox(0))
+          && (min_area < 0 || models->at(i).area <= min_area)) {
+        min = i;
+        min_area = models->at(i).area;
+      }
     }
+    if (min != -1) {
+      selectROIVars::selected[min] = !selectROIVars::selected[min];
+    }
+
+    for (int n = 0; n < models->size(); n++) {
+      Scalar color(0, 0, 255);
+      if (selectROIVars::selected[n]) {
+        color = Scalar(0, 255, 0);
+      }
+      Point2f verticies[4];
+      models->at(n).getBoundingBox(0).points(verticies);
+
+      for (int i = 0; i < 4; i++)
+        line(frame, verticies[i], verticies[(i+1)%4], color, 2);
+
+    }
+    imshow("Select ROIs", frame);
   }
   selectROIVars::lastMouseButton = true;
 }
 vector<int> mtlib::selectObjects(Mat frame, vector<Model> * models) {
+  selectROIVars::selected.resize(models->size(), false);
+  selectROIVars::modelsToSearch = models;
   namedWindow("Select ROIs", CV_WINDOW_AUTOSIZE);
-  Mat dst = frame;
 
+  Mat dst = Mat::zeros(frame.size(), CV_8UC3);
+  double minArea = models->at(0).area;
+  double maxArea = models->at(0).area;
+  for (int i = 1; i < models->size(); i++) {
+    double t_area = models->at(i).area;
+    if (t_area < minArea)
+      minArea = t_area;
+    if (t_area > maxArea)
+      maxArea = t_area;
+  }
+  vector< vector<Point> > contours;
+  vector< Vec4i > hierarchy;
+  filterAndFindContours(frame, &contours, &hierarchy);
+  cout << contours.size() << " " << minArea << " " << maxArea << endl;
+  drawContoursAndFilter(dst, &contours, &hierarchy, minArea, maxArea);  
+  selectROIVars::contours = dst.clone();
   for (int n = 0; n < models->size(); n++) {
     Point2f verticies[4];
     models->at(n).getBoundingBox(0).points(verticies);
     for (int i = 0; i < 4; i++)
-      line(dst, verticies[i], verticies[(i+1)%4], Scalar(0, 255, 0));
+      line(dst, verticies[i], verticies[(i+1)%4], Scalar(0, 0, 255), 2);
   }
   imshow("Select ROIs", dst);
+  setMouseCallback("Select ROIs", selectROICallback, 0);
   waitKey(0);
   destroyWindow("Select ROIs");
-
-
+  vector<int> selectedIndicies;
+  for (int i = 0; i < selectROIVars::selected.size(); i++) {
+    if (selectROIVars::selected[i]) {
+      selectedIndicies.push_back(i);
+    }
+  }
+  return selectedIndicies;
+}
 void mtlib::setDefaultChannel(int channel) {
   DEF_CHANNEL = channel;
-
 }

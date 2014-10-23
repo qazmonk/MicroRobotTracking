@@ -42,7 +42,12 @@ int main(int argc, char* argv[]) {
 
 
   mtlib::generateModels(video[0], &models, minArea, maxArea);
-  mtlib::selectObjects(video[0], &models);
+  vector<int> selected =  mtlib::selectObjects(video[0], &models);
+  vector<mtlib::Model> selectedModels;
+  for (int i = 0; i < selected.size(); i++) {
+    selectedModels.push_back(models[i]);
+  }
+  models = selectedModels;
   namedWindow(window, CV_WINDOW_AUTOSIZE);
 
   for (int i = 0; i < video.size(); i++) {

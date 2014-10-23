@@ -13,6 +13,7 @@ namespace mtlib {
   class Model {
   public:
     int w, h;
+    double area;
     std::vector<cv::Point> centers;
     std::vector<cv::Mat> templates;
     std::vector<double> rotations;
@@ -35,9 +36,9 @@ namespace mtlib {
     void drawModel(cv::Mat dst, int t);
     //Returns the appropriate rotated bounding box for some time index t
     cv::RotatedRect getBoundingBox(int t);
-    //constructs a new model given a template, a center, and a rotated bounding box
-    //This involves creating a vector of rotated versions of the model
-    Model(cv::Mat temp, cv::Point center, cv::RotatedRect bounding);
+    //Constructs a new model given a template, a center, a rotated bounding box, and the area
+    //of the contour. This involves creating a vector of rotated versions of the model
+    Model(cv::Mat temp, cv::Point center, cv::RotatedRect bounding, double a);
 
   private:
     const static int numTemplates = 360;

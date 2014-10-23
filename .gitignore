@@ -1,1 +1,4 @@
 video*
+data.txt
+*.o
+ModelsTest
