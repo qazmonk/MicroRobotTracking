@@ -10,16 +10,14 @@ int main() {
   
   firefly_setup_camera(f, &camera);
 
+  namedWindow("Frame", CV_WINDOW_AUTOSIZE);
   firefly_start_transmission(camera);
 
-  Mat frame = firefly_capture_frame(camera);
-
+  while (waitKey(10) == -1) {
+    Mat frame = firefly_capture_frame(camera);
+    imshow("Frame", frame);
+  }
   firefly_stop_transmission(camera);
-
-  namedWindow("Frame", CV_WINDOW_AUTOSIZE);
-  imshow("Frame", frame);
-  waitKey(0);
-
   firefly_cleanup_camera(camera);
   firefly_free(f);
 
