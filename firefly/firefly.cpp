@@ -128,7 +128,7 @@ firefly_error_t firefly_start_transmission(firefly_camera_t * camera) {
   return DC1394_SUCCESS;
 }
 
-cv::Mat firefly_capture_frame(firefly_camera_t * camera) {
+firefly_frame_t firefly_capture_frame(firefly_camera_t * camera) {
   dc1394video_frame_t *frame;
   dc1394error_t err=dc1394_capture_dequeue(camera, DC1394_CAPTURE_POLICY_WAIT, &frame);/* Capture */
   if (err < 0) {
@@ -136,9 +136,23 @@ cv::Mat firefly_capture_frame(firefly_camera_t * camera) {
   }
   cv::Mat img(frame->size[1], frame->size[0], CV_8UC1, frame->image, frame->stride);
   dc1394_capture_enqueue(camera, frame);
-  return img;
+  firefly_frame_t f;
+  f.img = img;
+  f.frames_behind = frame->frames_behind;
+  return f;
 }
 
+void firefly_flush_camera(firefly_camera_t * camera) {
+  firefly_stop_transmission(camera);
+  dc1394video_frame_t *frame;
+
+  do {
+      dc1394error_t err=dc1394_capture_dequeue(camera, DC1394_CAPTURE_POLICY_WAIT, &frame);
+      if (err < 0) {
+        return;
+      }
+  } while (frame->frames_behind > 0);
+}
 
 firefly_error_t firefly_stop_transmission(firefly_camera_t * camera) {
   dc1394error_t err = dc1394_video_set_transmission(camera, DC1394_OFF);
