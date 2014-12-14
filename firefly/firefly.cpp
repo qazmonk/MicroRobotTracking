@@ -1,5 +1,6 @@
 
 #include <dc1394/dc1394.h>
+#include <dc1394/format7.h>
 #include <stdlib.h>
 #include <inttypes.h>
 #include <opencv2/opencv.hpp>
@@ -49,31 +50,10 @@ firefly_error_t firefly_setup_camera(firefly_t * f, firefly_camera_t ** camera) 
   printf("Using camera with GUID %"PRIx64"\n", (*camera)->guid);
 
   /*-----------------------------------------------------------------------
-   *  get the best video mode and highest framerate. This can be skipped
-   *  if you already know which mode/framerate you want...
+   *  Set the video mode to format_7 to get color images
    *-----------------------------------------------------------------------*/
-  // get video modes:
-  err=dc1394_video_get_supported_modes(*camera,&video_modes);
-  if (err < 0) {
-    return err;
-  }
 
-
-  // select highest res mode:
-  for (i=video_modes.num-1;i>=0;i--) {
-    if (!dc1394_is_video_mode_scalable(video_modes.modes[i])) {
-      dc1394_get_color_coding_from_video_mode(*camera,video_modes.modes[i], &coding);
-      if (coding==DC1394_COLOR_CODING_MONO8) {
-        video_mode=video_modes.modes[i];
-        break;
-      }
-    }
-  }
-  if (i < 0) {
-    dc1394_log_error("Could not get a valid MONO8 mode");
-    cleanup_and_exit(*camera);
-  }
-
+  video_mode=DC1394_VIDEO_MODE_FORMAT7_0;
   err=dc1394_get_color_coding_from_video_mode(*camera, video_mode,&coding);
 
   if (err < 0) {
@@ -81,13 +61,11 @@ firefly_error_t firefly_setup_camera(firefly_t * f, firefly_camera_t ** camera) 
     return err;
   }
 
-  // get highest framerate
-  err=dc1394_video_get_supported_framerates(*camera,video_mode,&framerates);
-  if (err < 0) {
-    printf("Could not get framerates\n");
-    return err;
-  }
-  framerate=framerates.framerates[framerates.num-1];
+  //Get max image size
+  unsigned int w, h;
+  dc1394_format7_get_max_image_size(*camera, video_mode, &w, &h);
+  printf("Maximumg size %dx%d\n", w, h);
+
 
   /*-----------------------------------------------------------------------
    *  setup capture
@@ -106,7 +84,7 @@ firefly_error_t firefly_setup_camera(firefly_t * f, firefly_camera_t ** camera) 
     return err;
   }
 
-  err=dc1394_video_set_framerate(*camera, framerate);
+  err=dc1394_video_set_framerate(*camera, DC1394_FRAMERATE_60);
   if (err < 0) {
     printf("Could not set framerate\n");
     return err;
@@ -134,7 +112,12 @@ firefly_frame_t firefly_capture_frame(firefly_camera_t * camera) {
   if (err < 0) {
     printf("Problem getting an image\n");
   }
-  cv::Mat img(frame->size[1], frame->size[0], CV_8UC1, frame->image, frame->stride);
+
+  //Convert to RGB from raw format
+  cv::Mat bayer_img(frame->size[1], frame->size[0], CV_8UC1, frame->image, frame->stride);
+  cv::Mat img(frame->size[1], frame->size[0], CV_8UC3);
+  cv::cvtColor(bayer_img, img, CV_BayerRG2RGB);
+  
   dc1394_capture_enqueue(camera, frame);
   firefly_frame_t f;
   f.img = img;
