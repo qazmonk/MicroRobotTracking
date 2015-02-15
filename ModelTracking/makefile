@@ -20,3 +20,4 @@ all:
 clean:
 	rm *.o
 	rm ModelsTest
+	rm AffineTest
