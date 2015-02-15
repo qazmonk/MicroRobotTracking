@@ -31,6 +31,9 @@ namespace mtlib {
     cv::Mat getRotatedTemplate(double angle);
     //displays all the rotations of the model, mostly for debugging
     void showModel();
+    //Returns the time index most recently added. Calling a method such as drawModel with
+    //the value returned will draw the most recent update
+    int curTime();
     //draws a dot for the center and a line for the orientation at some time 
     //index t on the image dst
     void drawModel(cv::Mat dst, int t);
@@ -122,6 +125,9 @@ namespace mtlib {
   //Sets the channel upon which all filters will be applied to channel
   void setDefaultChannel(int channel);
 
+
+  std::vector<cv::Point> getAffineTransformPoints(cv::Mat frame, cv::Mat (*capture)(),
+                                                  int w, int h, int x, int y);
 }
 
 #endif

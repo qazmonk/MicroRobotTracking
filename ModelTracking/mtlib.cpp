@@ -79,7 +79,7 @@ string mtlib::type2str(int type) {
   return r;
 }
 
-const double mtlib::Model::searchEnlargement = 1.2;
+const double mtlib::Model::searchEnlargement = 1.5;
 
 Mat enlargeFromCenter(Mat img, Size ns) {
   Mat enlarged(ns, img.type(), Scalar(0, 0, 0));
@@ -157,9 +157,13 @@ Rect mtlib::Model::getSearchArea(cv::Mat frame) {
   
 }
 
+int mtlib::Model::curTime() {
+  return centers.size() - 1;
+}
 void mtlib::Model::update(Point center, double rotation) {
   centers.push_back(center);
   rotations.push_back(rotation);
+  cout << "Updated to " << center << " at time " << curTime() << endl;
 }
 
 Mat mtlib::Model::getRotatedTemplate(double a) {
@@ -286,11 +290,12 @@ void mtlib::Model::showModel() {
 }
 
 void mtlib::Model::drawModel(Mat dst, int t) {
+
   double PI = 3.14159;
   double a = rotations[t];
   Point v(std::cos(a*PI/180)*20, -std::sin(a*PI/180)*20);
   Point c = centers[t];
-
+  cout << "Drawing model at " << c << " at time " << t << endl;
   line(dst, c, c + v,	 Scalar(255, 255, 255));
   circle(dst, c, 4, Scalar(255, 255, 255), -1, 8, 0);
 }
@@ -331,6 +336,8 @@ void mtlib::generateModels(Mat frame, vector<Model> * models, int minArea, int m
 void mtlib::updateModels(Mat frame, vector<Model> * models, int minArea, int maxArea) {
   //loop through models
   Mat out = Mat::zeros(frame.size(), frame.type());
+  //namedWindow("Searching", CV_WINDOW_AUTOSIZE);
+  
   for (int i = 0; i < models->size(); i++) {
     //Get part of image in search area
     Rect searchArea = models->at(i).getSearchArea(frame);
@@ -341,7 +348,7 @@ void mtlib::updateModels(Mat frame, vector<Model> * models, int minArea, int max
     filterAndFindContours(roi, &contours, &hierarchy);
     Mat roi_cont = Mat::zeros(roi.size(), CV_8UC1);
     drawContoursAndFilter(roi_cont, &contours, &hierarchy, minArea, maxArea);
- 
+    //imshow("Searching", roi_cont);
     //serach contours for the object
     int bestCont = 0, area = contourArea(contours[i]);
     bool foundObject = false;
@@ -354,18 +361,23 @@ void mtlib::updateModels(Mat frame, vector<Model> * models, int minArea, int max
 	area = consize;
       }
     }
+    cout << "Found object: " << foundObject << endl;
     //if the object was found generate new center and orientation data
     //othrewise assume it hasn't moved
     Point c;
     double a;
+    //namedWindow("Found", CV_WINDOW_AUTOSIZE);
     if (foundObject) {
       c = getCenter(contours[bestCont]) + searchArea.tl();
-      a = getRotation(models->at(i), roi_cont, 30);
-
+      a = getRotation(models->at(i), roi_cont, 45);
+      
     } else {
       c = models->at(i).getCenter();
       a = models->at(i).getRotation();
     }
+    //circle(frame, c, 4, Scalar(255, 0, 0), -1, 8, 0);
+    //imshow("Found", frame);
+    //waitKey(0);
     models->at(i).update(c, a);
   }
   
@@ -534,6 +546,114 @@ vector<int> mtlib::selectObjects(Mat frame, vector<Model> * models) {
   }
   return selectedIndicies;
 }
+
 void mtlib::setDefaultChannel(int channel) {
   DEF_CHANNEL = channel;
+}
+
+bool new_point = false;
+void on_mouse( int e, int x, int y, int d, void *ptr )
+{
+  if (e != EVENT_LBUTTONDOWN || new_point)
+    return;
+  
+  cout << "clicked" << endl;
+  Point*p = (Point*)ptr;
+  p->x = x;
+  p->y = y;
+  new_point = true;
+}
+
+//This should be essentially just a copy of what you had written just cleaned up some.
+//I removed all the calls to flip since the OpenCV documentation mentioned that needing
+//them was an idiosyncrasy of Windows.
+
+//The function takes a frame that is the starting capture the user wants to use
+//to get the first set of points. It also takes a function pointer called capture
+//that when called returns the next frame the user wants to use. In practice we will
+//write a capture function that will call the firefly capture method and pass it to this method
+//The dimensions and coordinates are used to position the DMD window
+vector<Point> mtlib::getAffineTransformPoints(Mat frame, Mat (*capture)(),
+					      int w, int h, int x, int y) {
+
+  vector<Point> ps;
+  Point p;
+  ps.reserve(6);
+
+  Mat white(608, 648, CV_8UC1, 255);
+  Mat img_bw(frame.rows, frame.cols, CV_8UC1, 255);
+  Mat gray_img(frame.rows, frame.cols, CV_8UC1, 255);
+  
+  namedWindow("ueye", CV_WINDOW_AUTOSIZE);
+  namedWindow("dmd", CV_WINDOW_NORMAL);
+
+  //Display frame
+  imshow("ueye", frame);
+  
+  //cvMoveWindow("dmd", 1275, -32);
+  //cvResizeWindow("dmd", 608, 684);
+  cvMoveWindow("dmd", x, y);
+  cvResizeWindow("dmd", w, h);
+  
+  // Collect three source points for affine transformation.
+  setMouseCallback("ueye",on_mouse, (void*)(&p));
+  for (int i = 0; i < 3; i++) {
+    cout << "Click and press button to record a point (" << i+1 << "/3)" << endl;
+    while (!new_point) { waitKey(1); }
+    ps[i] = p;
+    new_point = false;
+    cout << "Recorded" << endl;
+  }
+
+  //Save the image as a gray image and threshold it
+  cvtColor(frame, gray_img, CV_BGR2GRAY);
+  adaptiveThreshold(gray_img, img_bw, 255, ADAPTIVE_THRESH_MEAN_C, THRESH_BINARY, 27, 5);
+
+  //show an all white image on the dmd
+  imshow("dmd", white);
+  waitKey(300); 
+
+  //cature another frame and display it
+  frame = (*capture)();
+  imshow("ueye", frame);
+  waitKey(30);
+
+  //I got rid of this since the new set up probably won't have the same quirks as the last one
+  //cap>>framew;  // This line is essential to keep the video from 'feeding back'.  Timing issue?
+
+  
+
+  // Crop the full image to that image contained by the rectangle myROI
+  //Rect myROI(90, 50, 630, 350);
+
+  //I'm not sure why you chose these specific numbers I had to change 640 to 630 for the demo
+  //with a video with width 640 since it crashes in that case.
+  //They can easily be moved to variables to change them easier
+  Rect myROI(1, 1, 630, 479);
+  Mat img_bw_crop = img_bw(myROI).clone();
+
+  //Display the threshholded image on DMD
+  imshow("dmd", img_bw_crop);
+  waitKey(1000);
+
+  //Loop over display of camera video.  Not sure why it's necessary for the 'delay'
+  //I just coppied this exactly since I really don't understand why it is necessary to
+  //Capture and display three times in successsion
+  for (int i = 0; i < 3; i++) {
+    cout << "Display ueye image for second part of affine transformation " << i << endl;
+    frame = (*capture)();
+
+    imshow("ueye", frame);
+    waitKey(100);
+  }
+
+  for (int i = 0; i < 3; i++) {
+    cout << "Click and press key to record a point (" << i+4 << "/6)" << endl;
+    while (!new_point) {waitKey(1);}
+    ps[i+3] = p;
+    new_point = false;
+    cout << "Recorded" << endl;
+  }
+
+  return ps;
 }
