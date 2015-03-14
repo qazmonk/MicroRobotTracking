@@ -4,6 +4,7 @@
 #include "opencv2/imgproc/imgproc.hpp"
 #include <algorithm>
 #include <fstream>
+#include <typeinfo>
 
 using namespace cv;
 using namespace std;
@@ -656,4 +657,13 @@ vector<Point> mtlib::getAffineTransformPoints(Mat frame, Mat (*capture)(),
   }
 
   return ps;
+}
+
+
+Mat mtlib::fourToOne(Mat src) {
+  int rowsp = src.rows/4;
+  int colsp = src.cols/4;
+  Mat dst(rowsp, colsp, src.type());
+  cv::resize(src, dst, dst.size(), 0, 0);
+  return dst;
 }

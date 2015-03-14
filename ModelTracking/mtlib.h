@@ -128,6 +128,8 @@ namespace mtlib {
 
   std::vector<cv::Point> getAffineTransformPoints(cv::Mat frame, cv::Mat (*capture)(),
                                                   int w, int h, int x, int y);
+
+  cv::Mat fourToOne(cv::Mat);
 }
 
 #endif
