@@ -27,7 +27,7 @@ int main(int argc, char* argv[]) {
   namedWindow("Contours", CV_WINDOW_AUTOSIZE);
   namedWindow("Original", CV_WINDOW_AUTOSIZE);
   imshow("Original", video[0]);
-  Mat out = fourToOne(video[0]);
+  Mat out = video[0];
   
   while (1) {
   
@@ -36,10 +36,16 @@ int main(int argc, char* argv[]) {
     vector< vector<Point> > contours;
     vector< Vec4i > hierarchy;
     
-    filterAndFindContours(out, &contours, &hierarchy);
+    filterAndFindContoursElizabeth(out, &contours, &hierarchy);
     Mat dst = Mat::zeros(out.size(), CV_8UC3);
-    
-    drawContoursAndFilter(dst, &contours, &hierarchy, 0, 65565);
+
+    int min = -1, max = 0;
+    for (int i = 0; i < contours.size(); i++) {
+      double consize = contourArea(contours.at(i));
+      if (min == -1 || consize < min) min = consize;
+      if (max < consize) max = consize;
+    }
+    drawContoursAndFilter(dst, &contours, &hierarchy, (int)((max-min)*0.5 + min), max);
 
     imshow("Contours", dst);
     out = fourToOne(out);

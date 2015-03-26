@@ -90,6 +90,8 @@ int main(int argc, char* argv[]) {
   //waitKey(0);
 }
 
+
+
 void scrub (int , void* ) {
   imshow(window, out[pos/skip]);
 }

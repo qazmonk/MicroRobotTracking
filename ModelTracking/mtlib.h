@@ -77,6 +77,11 @@ namespace mtlib {
   void filterAndFindContours(cv::Mat src, std::vector< std::vector<cv::Point> > * contours,
 			     std::vector<cv::Vec4i> * hierarchy);
 
+  //Does the same thing as above but with different filters for Elizabeth's videos
+  void filterAndFindContoursElizabeth(cv::Mat src,
+                                      std::vector< std::vector<cv::Point> > * contours,
+                                      std::vector<cv::Vec4i> * hierarchy);
+
   //Draws the contours with areas in the given range onto the dst and then
   //applies some filters
   void drawContoursAndFilter(cv::Mat dst, std::vector< std::vector<cv::Point> > * contours,
@@ -130,6 +135,16 @@ namespace mtlib {
                                                   int w, int h, int x, int y);
 
   cv::Mat fourToOne(cv::Mat);
+
+  void getNPoints(int, std::string, std::vector<cv::Point>*, cv::Mat);
+
+  std::vector<cv::Point> getCorners(cv::Mat frame, std::string window);
+  cv::Point getGearCenter(std::vector<cv::Point>);
+  double getGearRotation(cv::Point, cv::Point);
+  double getRelRotation(std::vector<cv::Point>, cv::Point,
+                        std::vector<cv::Point>, cv::Point);
+  void drawCorners(cv::Mat*, std::vector<cv::Point>);
+  
 }
 
 #endif

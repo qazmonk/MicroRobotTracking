@@ -5,6 +5,9 @@
 #include <algorithm>
 #include <fstream>
 #include <typeinfo>
+#include <math.h>
+
+#define PI 3.14159265
 
 using namespace cv;
 using namespace std;
@@ -191,6 +194,33 @@ void mtlib::Model::drawBoundingBox(Mat frame, int t, Scalar c) {
   for (int i = 0; i < 4; i++)
     line(frame, verticies[i], verticies[(i+1)%4], c, 2);
 }
+void mtlib::filterAndFindContoursElizabeth(Mat frame, vector< vector<Point> > * contours, 
+				  vector<Vec4i> * hierarchy)
+{
+  vector<Mat> rgb;
+  Mat t0 = Mat::zeros(frame.size(), CV_8UC1);
+  Mat t = Mat::zeros(frame.size(), CV_8UC1);
+  Mat t2 = Mat::zeros(frame.size(), CV_8UC1);  
+  split(frame, rgb);
+
+  /*namedWindow("r", CV_WINDOW_AUTOSIZE);
+  namedWindow("g", CV_WINDOW_AUTOSIZE);
+  namedWindow("b", CV_WINDOW_AUTOSIZE);
+  imshow("r", rgb[1]);
+  imshow("g", rgb[0]);
+  imshow("b", rgb[2]);
+  waitKey(0);*/
+  
+  namedWindow("Thresh", CV_WINDOW_AUTOSIZE);
+  
+  //blur(rgb[DEF_CHANNEL], t0, Size(5, 5), Point(-1, -1));
+  //bilateralFilter(t0, t, 12, 50, 50);
+  adaptiveThreshold(rgb[DEF_CHANNEL], t2, 255, ADAPTIVE_THRESH_GAUSSIAN_C,
+		    THRESH_BINARY_INV, 91, 1);
+  imshow("Thresh", t2);
+  findContours(t2, *contours, *hierarchy, CV_RETR_LIST, CV_CHAIN_APPROX_SIMPLE);
+}
+
 void mtlib::filterAndFindContours(Mat frame, vector< vector<Point> > * contours, 
 				  vector<Vec4i> * hierarchy)
 {
@@ -291,8 +321,6 @@ void mtlib::Model::showModel() {
 }
 
 void mtlib::Model::drawModel(Mat dst, int t) {
-
-  double PI = 3.14159;
   double a = rotations[t];
   Point v(std::cos(a*PI/180)*20, -std::sin(a*PI/180)*20);
   Point c = centers[t];
@@ -557,14 +585,25 @@ void on_mouse( int e, int x, int y, int d, void *ptr )
 {
   if (e != EVENT_LBUTTONDOWN || new_point)
     return;
-  
-  cout << "clicked" << endl;
   Point*p = (Point*)ptr;
   p->x = x;
   p->y = y;
   new_point = true;
 }
 
+void mtlib::getNPoints(int n, string window, vector<Point> *dst, Mat src) {
+  Point p;
+  setMouseCallback(window,on_mouse, (void*)(&p));
+  for (int i = 0; i < n; i++) {
+    cout << "Click and press button to record a point (" << i+1 << "/" << n << ")" << endl;
+    while (!new_point) { waitKey(1); }
+    dst->push_back(p);
+    new_point = false;
+    Mat dst_mat = src.clone();
+    drawCorners(&dst_mat, *dst);
+    imshow(window, dst_mat);
+  }
+}
 //This should be essentially just a copy of what you had written just cleaned up some.
 //I removed all the calls to flip since the OpenCV documentation mentioned that needing
 //them was an idiosyncrasy of Windows.
@@ -597,14 +636,7 @@ vector<Point> mtlib::getAffineTransformPoints(Mat frame, Mat (*capture)(),
   cvResizeWindow("dmd", w, h);
   
   // Collect three source points for affine transformation.
-  setMouseCallback("ueye",on_mouse, (void*)(&p));
-  for (int i = 0; i < 3; i++) {
-    cout << "Click and press button to record a point (" << i+1 << "/3)" << endl;
-    while (!new_point) { waitKey(1); }
-    ps[i] = p;
-    new_point = false;
-    cout << "Recorded" << endl;
-  }
+  getNPoints(3, "ueye", &ps, frame);
 
   //Save the image as a gray image and threshold it
   cvtColor(frame, gray_img, CV_BGR2GRAY);
@@ -648,19 +680,87 @@ vector<Point> mtlib::getAffineTransformPoints(Mat frame, Mat (*capture)(),
     waitKey(100);
   }
 
-  for (int i = 0; i < 3; i++) {
-    cout << "Click and press key to record a point (" << i+4 << "/6)" << endl;
-    while (!new_point) {waitKey(1);}
-    ps[i+3] = p;
-    new_point = false;
-    cout << "Recorded" << endl;
-  }
-
+  getNPoints(3, "ueye", &ps, frame);
   return ps;
 }
 
+vector<Point> mtlib::getCorners (cv::Mat frame, string window) {
+  imshow(window, frame);
+  vector<Point> ps;
+  ps.reserve(12);
+  getNPoints(12, window, &ps, frame);
+  return ps;
+}
+void mtlib::drawCorners (cv::Mat* src, vector<Point> corners) {
+  circle(*src, corners[0], 4, Scalar(100, 0, 0), 1);
+  for (int i = 1; i < corners.size(); i++) {
+    circle(*src, corners[i], 4, Scalar(0, 100, 0), 2);
+  }
+}
+Point mtlib::getGearCenter(vector<Point> corners) {
+  Point2f c(0, 0);
+  double size = (double)(corners.size());
+  for (int i = 0; i < (int)(size); i++) {
+    c.x += 1.0/size*corners[i].x;
+    c.y += 1.0/size*corners[i].y;
+  }
+  Point out;
+  out.x = c.x;
+  out.y = c.y;
+  return out;
+}
+void printPoint2fArray(Point2f v[], int l) {
+  cout << "[";
+  for (int i = 0; i < l-1; i++) {
+    cout << v[i] << ", ";
+  }
+  cout << v[l-1] << "]" << endl;
 
-Mat mtlib::fourToOne(Mat src) {
+}
+double mtlib::getGearRotation(Point top, Point center) {
+  Point v = top-center;
+  return atan2(v.y, v.x)*180/PI;
+}
+double mtlib::getRelRotation(vector<Point> prev_cor, Point prev_cent,
+			     vector<Point> cur_cor, Point cur_cent) {
+  double angle = 0;
+  for (int i = 0; i < prev_cor.size(); i++) {
+    prev_cor[i] -= prev_cent;
+    cur_cor[i] -= cur_cent;    
+  }
+  Point2f prev[3];
+  Point2f cur[3];
+  for (int n = 0; n < 12; n++) {
+    for (int i = 0; i < 3; i++) {
+      prev[i] = prev_cor[(n+4*i)%prev_cor.size()];
+      cur[i] = cur_cor[(n+4*i)%cur_cor.size()];
+    }
+    cout << "prev test points: ";
+    printPoint2fArray(prev, 3);
+    cout << "cur test points: ";
+    printPoint2fArray(cur, 3);
+
+    // angle += atan2(cur_cor[n].y, cur_cor[n].x)*180/PI + 30*n;
+    // cout << "angle " << n << ": " << atan2(cur_cor[n].y, cur_cor[n].x)*180/PI << endl;
+    Mat transform = getAffineTransform(prev, cur);
+    transform.convertTo(transform,CV_32FC1, 1, 0);
+
+    vector<Point3f> vec;
+
+    Point2f src(1.0, 0), dst;
+    vec.push_back(Point3f(src.x, src.y, 1.0));
+
+    Mat srcMat = Mat(vec).reshape(1).t();
+    Mat dstMat = transform*srcMat;
+
+    dst=Point2f(dstMat.at<float>(0,0),dstMat.at<float>(1,0));
+    cout << "(1, 0) mapped to (" << dst.x << ", " << dst.y << ") rot = "
+	 << atan2(dst.y, dst.x)*180/PI << endl;
+    angle += atan2(dst.y, dst.x)*180/PI;
+  }
+  return angle/12;
+}
+Mat  mtlib::fourToOne(Mat src) {
   int rowsp = src.rows/4;
   int colsp = src.cols/4;
   Mat dst(rowsp, colsp, src.type());
