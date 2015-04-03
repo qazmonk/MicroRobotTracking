@@ -1,9 +1,7 @@
 MicroRobotTracking
  ==================
 
-A small application to track the motion of microrobots in videos
-
-To run: 
+To run ModelsTest: 
    run 'make ModelsTest' in the ModelsTest directory 
    Then run the executable with './Modelstest' supplying a video file as the second
    argument 
@@ -29,3 +27,6 @@ Using the application:
 
       
 
+To run ShrinkTest:
+   run 'make ShrinkTest' or 'make all' in the ModelsTest directory
+   Then run the executable with '/ModelsTest' supplying a video file as the second argument

@@ -26,9 +26,16 @@ void scrub(int, void*);
 
 int main(int argc, char* argv[]) {
 
+  bool write = false;
+  char* output_folder;
   for (int i = 0; i < argc; i++) {
     if (strncmp(argv[i], "-c", 2) == 0) {
       mtlib::setDefaultChannel(stoi(argv[i+1]));
+      i++;
+    } else if (strncmp(argv[i], "-w", 3) == 0) {
+      write = true;
+      output_folder = argv[i+1];
+      i++;
     }
   }
   captureVideo(argv[1], &video, &fps, &S, &ex);
@@ -81,7 +88,8 @@ int main(int argc, char* argv[]) {
     out.push_back(dst);
     
   }
-
+  
+  if (write) writeVideo(output_folder, out);
   //writeFile("data.txt", models);
     
   //createTrackbar("Scrubbing", window, &pos, video.size()-1, scrub);

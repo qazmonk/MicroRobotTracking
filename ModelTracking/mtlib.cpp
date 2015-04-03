@@ -6,7 +6,8 @@
 #include <fstream>
 #include <typeinfo>
 #include <math.h>
-
+#include <sys/stat.h>
+#include<unistd.h>
 #define PI 3.14159265
 
 using namespace cv;
@@ -48,10 +49,18 @@ bool mtlib::captureVideo(char* src, vector<Mat> * dst, int* fps, Size* s, int* e
   return true;
 }
 bool mtlib::writeVideo(const char* name, std::vector<cv::Mat> frames) {
+
+  char clean[50];
+  sprintf(clean, "./%s/clean.sh", name);
+  if (access( clean, F_OK ) != -1) {
+    cout << "cleaning directory..." << endl;
+    sprintf(clean, "%s %s", clean, name);
+    system(clean);
+
+  }
+  cout << "writing frames" << endl;
   for (int i = 0; i < frames.size(); i++) {
-
     char fileName[50];
-
     cout << "writing frame " << i + 1 << " of " << frames.size() << endl;
     frames[i].convertTo(frames[i], CV_8UC3);
     sprintf(fileName, "./%s/frame_%04d.jpeg", name, i);
@@ -211,16 +220,39 @@ void mtlib::filterAndFindContoursElizabeth(Mat frame, vector< vector<Point> > * 
   imshow("b", rgb[2]);
   waitKey(0);*/
   
-  namedWindow("Thresh", CV_WINDOW_AUTOSIZE);
+  //namedWindow("Thresh", CV_WINDOW_AUTOSIZE);
   
   //blur(rgb[DEF_CHANNEL], t0, Size(5, 5), Point(-1, -1));
   //bilateralFilter(t0, t, 12, 50, 50);
   adaptiveThreshold(rgb[DEF_CHANNEL], t2, 255, ADAPTIVE_THRESH_GAUSSIAN_C,
 		    THRESH_BINARY_INV, 91, 1);
-  imshow("Thresh", t2);
+  //imshow("Thresh", t2);
   findContours(t2, *contours, *hierarchy, CV_RETR_LIST, CV_CHAIN_APPROX_SIMPLE);
 }
 
+Mat mtlib::filter(Mat frame) {
+  Mat dst;
+  Canny(frame, dst, 50, 100, 3);
+  return dst;
+}
+void mtlib::filterAndFindLines(Mat frame, vector<Vec2f> * lines) {
+  Mat dst = filter(frame);
+  HoughLines(dst, *lines, 1, CV_PI/180, 70, 0, 0);
+}
+void mtlib::drawLines(Mat dst, vector<Vec2f> * lines) {
+  for( size_t i = 0; i < lines->size(); i++ )
+  {
+    float rho = (*lines)[i][0], theta = (*lines)[i][1];
+     Point pt1, pt2;
+     double a = cos(theta), b = sin(theta);
+     double x0 = a*rho, y0 = b*rho;
+     pt1.x = cvRound(x0 + 1000*(-b));
+     pt1.y = cvRound(y0 + 1000*(a));
+     pt2.x = cvRound(x0 - 1000*(-b));
+     pt2.y = cvRound(y0 - 1000*(a));
+     line( dst, pt1, pt2, Scalar(255,255,0), 1, CV_AA);
+  }
+}
 void mtlib::filterAndFindContours(Mat frame, vector< vector<Point> > * contours, 
 				  vector<Vec4i> * hierarchy)
 {
@@ -236,6 +268,7 @@ void mtlib::filterAndFindContours(Mat frame, vector< vector<Point> > * contours,
   imshow("b", rgb[2]);
   waitKey(0);*/
 
+
   adaptiveThreshold(rgb[DEF_CHANNEL], t, 255, ADAPTIVE_THRESH_MEAN_C, THRESH_BINARY, 27, 5);
   
   findContours(t, *contours, *hierarchy, CV_RETR_LIST, CV_CHAIN_APPROX_SIMPLE);
@@ -246,7 +279,7 @@ void mtlib::drawContoursAndFilter(Mat dst, vector< vector<Point> > * contours,
 {
 
   Mat contour_drawing = Mat::zeros(dst.size(), dst.type());
-  Scalar color = Scalar(255, 255, 255);
+  Scalar color = Scalar(255, 255, 0);
 
 
   //loop through contours filtering out ones that are too small or too big
@@ -761,8 +794,8 @@ double mtlib::getRelRotation(vector<Point> prev_cor, Point prev_cent,
   return angle/12;
 }
 Mat  mtlib::fourToOne(Mat src) {
-  int rowsp = src.rows/4;
-  int colsp = src.cols/4;
+  int rowsp = src.rows/2;
+  int colsp = src.cols/2;
   Mat dst(rowsp, colsp, src.type());
   cv::resize(src, dst, dst.size(), 0, 0);
   return dst;

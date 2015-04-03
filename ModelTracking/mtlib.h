@@ -71,6 +71,15 @@ namespace mtlib {
   //returns true if the video was written sucessfully
   bool writeVideo(const char* filename, std::vector<cv::Mat> frames);
 
+  //Applies a set of filters for making tracking easier
+  cv::Mat filter(cv::Mat src);
+
+  //Applies some filters and then finds the lines in it using the HoughLine
+  //opencv function
+  void filterAndFindLines(cv::Mat, std::vector<cv::Vec2f> *);
+  
+  //compaining to filterAndFindLines. Draws the lines returned by that function
+  void drawLines(cv::Mat, std::vector<cv::Vec2f> *);
   //Applies several filters to an image before finding the contours and storing the results
   //in contours and hierarchy. A channel can optionally be supplied to apply the filters to
   //a channel other than 2
