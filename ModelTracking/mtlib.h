@@ -17,9 +17,11 @@ namespace mtlib {
     std::vector<cv::Point> centers;
     std::vector<cv::Mat> templates;
     std::vector<double> rotations;
-
+    std::vector<double> rotSig;
     //returns the center most recently pushed onto the centers vector
     cv::Point getCenter();
+    //calculates the rotation of given contour and center with respect to the model
+    double getContourRot(std::vector<cv::Point>, cv::Point);
     //returns the rotation most recently pushed onto the reotations vector
     double getRotation();
     //returns the area to serach for the object in the given frame
@@ -41,15 +43,18 @@ namespace mtlib {
     cv::RotatedRect getBoundingBox(int t);
     //Draws the bounding box for some time index t on a mat frame with color c
     void drawBoundingBox(cv::Mat frame, int t, cv::Scalar c);
-    //Constructs a new model given a template, a center, a rotated bounding box, and the area
-    //of the contour. This involves creating a vector of rotated versions of the model
-    Model(cv::Mat temp, cv::Point center, cv::RotatedRect bounding, double a);
+    //Constructs a new model given a template, a center, a rotated bounding box, the area
+    //of the contour, and the contour itself. 
+    //This involves creating a vector of rotated versions of the model
+    Model(cv::Mat temp, cv::Point center, cv::RotatedRect bounding, double a, 
+          std::vector<cv::Point>);
 
   private:
     const static int numTemplates = 360;
     cv::Point centerToCorner;
     const static double searchEnlargement;
     cv::RotatedRect bounding;
+    std::vector<double> oSig;
   };
 
 
@@ -99,6 +104,8 @@ namespace mtlib {
   //Uses moments of the contours to find the center of the given contour
   cv::Point getCenter(std::vector<cv::Point> contour);
 
+  //Convert a contour into a rotation signal that can be used to determine orientation
+  std::vector<double> getRotSignal(std::vector<cv::Point>, cv::Point);
   //Uses template matching to find the rotation of the model in the frame.
   //This relies on the object to be matched being at least the main object in the frame
   //The frame should also have had the same filters applied to it as the model
@@ -149,10 +156,13 @@ namespace mtlib {
 
   std::vector<cv::Point> getCorners(cv::Mat frame, std::string window);
   cv::Point getGearCenter(std::vector<cv::Point>);
+  double getAngleBetween(cv::Point, cv::Point);
   double getGearRotation(cv::Point, cv::Point);
   double getRelRotation(std::vector<cv::Point>, cv::Point,
                         std::vector<cv::Point>, cv::Point);
   void drawCorners(cv::Mat*, std::vector<cv::Point>);
+
+  void showHist(const char *, std::vector<double>);
   
 }
 

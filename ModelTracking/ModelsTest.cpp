@@ -19,15 +19,21 @@ vector<Mat> out;
 int fps, ex, pos = 0;
 Size S;
 string window = "Output";
-int skip = 2;
+int skip = 1;
 vector<Model> models;
 
 void scrub(int, void*);
 
 int main(int argc, char* argv[]) {
-
-  bool write = false;
+  cout << "reading file..." << endl;
+  captureVideo(argv[1], &video, &fps, &S, &ex);
+  cout << "done" << endl;
+  bool write = false, partialComp = true;
+  int numFrames = video.size(), startFrame = 0;
   char* output_folder;
+  int minArea = -1;
+  int maxArea = -1;
+
   for (int i = 0; i < argc; i++) {
     if (strncmp(argv[i], "-c", 2) == 0) {
       mtlib::setDefaultChannel(stoi(argv[i+1]));
@@ -36,29 +42,49 @@ int main(int argc, char* argv[]) {
       write = true;
       output_folder = argv[i+1];
       i++;
+    } else if (strncmp(argv[i], "-n", 3) == 0) {
+      partialComp = true;
+      numFrames = startFrame+stoi(argv[i+1]);
+      i++;
+    } else if (strncmp(argv[i], "-s", 3) == 0) {
+      startFrame = stoi(argv[i+1]);
+      i++;
+    } else if (strncmp(argv[i], "-e", 3) == 0) {
+      numFrames = stoi(argv[i+1]);
+      i++;
+    } else if (strncmp(argv[i], "--bounds", 10) == 0) {
+      minArea = stoi(argv[i+1]);
+      maxArea = stoi(argv[i+2]);
+      i+=2;
     }
   }
-  captureVideo(argv[1], &video, &fps, &S, &ex);
-  
 
-  //Point minMax = getMinAndMaxAreas(video[0]);
+  int tmpa[] = {1, 2 ,3};
+  vector<double> tmpv(tmpa,tmpa+sizeof(tmpa)/sizeof(int));
+  namedWindow("tmp", CV_WINDOW_AUTOSIZE);
+  showHist("tmp", tmpv);
 
-  int minArea = 12000;//minMax.x;
-  int maxArea = 20000;//minMax.y;
+  if (minArea < 0 || maxArea < 0 || minArea > maxArea) {
+    Point minMax = getMinAndMaxAreas(video[0]);
+    minArea = minMax.x;
+    maxArea = minMax.y;
+  }
   out.reserve(video.size());
-
+ 
+  cout << "generating models...";
   mtlib::generateModels(video[0], &models, minArea, maxArea);
-  //vector<int> selected =  mtlib::selectObjects(video[0], &models);
+  cout << "done" << endl;
+  vector<int> selected =  mtlib::selectObjects(video[0], &models);
   vector<mtlib::Model> selectedModels;
-  /*for (int i = 0; i < selected.size(); i++) {
-    selectedModels.push_back(models[i]);
-    }*/
-  selectedModels.push_back(models[0]);
+  for (int i = 0; i < selected.size(); i++) {
+    selectedModels.push_back(models[selected[i]]);
+  }
   models = selectedModels;
-  //namedWindow(window, CV_WINDOW_AUTOSIZE);
+  namedWindow(window, CV_WINDOW_AUTOSIZE);
+
 
   clock_t t;
-  for (int i = 0; i < video.size(); i += skip) {
+  for (int i = startFrame; i < numFrames; i += skip) {
 
     t = clock();
     
@@ -89,17 +115,18 @@ int main(int argc, char* argv[]) {
     
   }
   
-  if (write) writeVideo(output_folder, out);
-  //writeFile("data.txt", models);
-    
-  //createTrackbar("Scrubbing", window, &pos, video.size()-1, scrub);
-  //scrub(0, 0);
+  if (write) { writeVideo(output_folder, out); }
 
-  //waitKey(0);
+  createTrackbar("Scrubbing", window, &pos, out.size()-1, scrub);
+  
+  cout << "size: " << out.size()-1 <<  " val: " << getTrackbarPos("Scrubbing", window) << endl;
+  scrub(0, 0);
+
+  waitKey(0);
 }
 
 
 
 void scrub (int , void* ) {
-  imshow(window, out[pos/skip]);
+  imshow(window, out[pos]);
 }

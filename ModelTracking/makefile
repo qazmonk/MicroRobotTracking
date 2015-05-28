@@ -23,8 +23,11 @@ ShrinkTest: ShrinkTest.o mtlib.o
 GearTracking: GearTracking.o mtlib.o
 	${CC} ${LDFLAGS} GearTracking.o mtlib.o -o GearTracking
 
-AffineTest: mtlib.o
+AffineTest: AffineTest.cpp mtlib.h
 	${CC} ${LDFLAGS} AffineTest.cpp mtlib.o -o AffineTest
+
+Threshhold: Threshhold.cpp mtlib.h
+	${CC} ${LDFLAGS} Threshhold.cpp mtlib.o -o Threshhold
 
 
 all:
@@ -32,9 +35,12 @@ all:
 	make ShrinkTest
 	make AffineTest
 	make GearTracking
+	make Threshhold
 clean:
 	rm *.o
 	rm ModelsTest
 	rm AffineTest
 	rm ShrinkTest
 	rm GearTracking
+	rm Threshholdb
+

@@ -104,10 +104,11 @@ Mat enlargeFromCenter(Mat img, Size ns) {
   return enlarged;
 }
 
-mtlib::Model::Model(Mat temp, Point init_center, RotatedRect init_bounding, double a) {
+mtlib::Model::Model(Mat temp, Point init_center, RotatedRect init_bounding, double a,
+		    vector<Point> cont) {
   area = a;
   bounding = init_bounding;
-
+  oSig = getRotSignal(cont, init_center);
   templates.reserve(numTemplates);
   int c = (int)sqrt(temp.rows*temp.rows + temp.cols*temp.cols);
   Point center(c/2, c/2);
@@ -138,7 +139,45 @@ mtlib::Model::Model(Mat temp, Point init_center, RotatedRect init_bounding, doub
 Point mtlib::Model::getCenter() {
   return centers[centers.size()-1];
 }
-
+double angleDist(double a1, double a2) {
+  double d = abs(a1-a2);
+  if (d > 180) {
+    d = 360-d;
+  }
+  return d;
+}
+double mtlib::Model::getContourRot(vector<Point> cont, Point c) {
+  double rot = getRotation(), min_cost = -1;
+  vector<double> sig = getRotSignal(cont, c), all_costs, min_costs;
+  vector<int> offsets;
+  for (int o = 0; o < 360; o++) {
+    double cost = 0;
+    for (int i = 0; i < 360; i++) {
+      double del = sig[(o+i)%360]-oSig[i];
+      cost += del*del;
+    }
+    all_costs.push_back(cost);
+    if (min_cost < 0 || cost < min_cost) min_cost = cost;
+  }
+  for (int i = 0; i < 360; i++) {
+    if (all_costs[i] - min_cost < min_cost*0.1 && all_costs[i] < all_costs[(i+1)%360]
+	&& all_costs[i] < all_costs[(i-1+360)%360]) {
+      min_costs.push_back(all_costs[i]);
+      offsets.push_back(i);
+    }
+  }
+  double best_angle= 360-offsets[0];
+  if (best_angle >= 360) best_angle -= 360;
+  for (int i = 0; i < min_costs.size(); i++) {
+    double angle = 360-offsets[i];
+    if (angle >= 360) angle -= 360;
+    cout << angle << " " << min_costs[i] << endl;
+    if (angleDist(angle, rot) < angleDist(best_angle, rot)) {
+      best_angle = angle;
+    }
+  }
+  return best_angle;
+}
 double mtlib::Model::getRotation() {
   return rotations[rotations.size()-1];
 }
@@ -271,7 +310,7 @@ void mtlib::filterAndFindContours(Mat frame, vector< vector<Point> > * contours,
 
   adaptiveThreshold(rgb[DEF_CHANNEL], t, 255, ADAPTIVE_THRESH_MEAN_C, THRESH_BINARY, 27, 5);
   
-  findContours(t, *contours, *hierarchy, CV_RETR_LIST, CV_CHAIN_APPROX_SIMPLE);
+  findContours(t, *contours, *hierarchy, CV_RETR_LIST, CV_CHAIN_APPROX_NONE);
 }
 
 void mtlib::drawContoursAndFilter(Mat dst, vector< vector<Point> > * contours, 
@@ -286,7 +325,11 @@ void mtlib::drawContoursAndFilter(Mat dst, vector< vector<Point> > * contours,
   for (int i = 0; i < contours->size(); i++) {
     double consize = contourArea(contours->at(i));
     if (consize >= minArea && consize <= maxArea) {
-      drawContours(contour_drawing, *contours, i, color, 2, 8, *hierarchy, 0, Point());
+      //drawContours(contour_drawing, *contours, i, color, 2, 8, *hierarchy, 0, Point());
+      vector<Point> contour = contours->at(i);
+      for (int j = 0; j < contour.size(); j++) {
+	circle(contour_drawing, contour[j], 1, Scalar(255, 255, 255));
+      }
     }
   }
   
@@ -301,7 +344,23 @@ Point mtlib::getCenter(vector<Point> contour) {
   Moments m = moments(contour, false);
   return Point(m.m10/m.m00, m.m01/m.m00);
 }
-
+vector<double> mtlib::getRotSignal(vector<Point> contour, Point center) {
+  vector<int> sig_int(360, 0);
+  int scale = 100;
+  for (int i = 0; i < contour.size(); i++) {
+    int a = (int)(getAngleBetween(contour[i], center));
+    sig_int[a]++;
+  }
+  int max = 0;
+  for (int i = 0; i < sig_int.size(); i++) {
+    if (sig_int[i] > max) max = sig_int[i];
+  }
+  vector<double> sig(360, 0);
+  for (int i = 0; i < sig_int.size(); i++) {
+    sig[i] = 100.0*((double)sig_int[i])/max;
+  }
+  return sig;
+}
 double mtlib::getRotation(Model m, Mat frame, double sweep) {
   
   //make frame bigger to help when objects go near the edges of the frame
@@ -364,6 +423,8 @@ void mtlib::Model::drawModel(Mat dst, int t) {
 
 
 void mtlib::generateModels(Mat frame, vector<Model> * models, int minArea, int maxArea) {
+  namedWindow("Histogram Ref", CV_WINDOW_AUTOSIZE);
+
   vector< vector<Point> > contours;
   vector<Vec4i> hierarchy;
   //do all contour finding, drawing and filtering
@@ -378,7 +439,7 @@ void mtlib::generateModels(Mat frame, vector<Model> * models, int minArea, int m
     double consize = contourArea(contours[i]);
     if (consize > minArea && consize < maxArea) {
       //create model and push it onto the vector
-      
+
       Rect t = boundingRect(contours[i]);
       Point v(t.width*0.2, t.height*0.2);
       Point tl = moveInside(t.tl()-v, frame.size());
@@ -387,8 +448,10 @@ void mtlib::generateModels(Mat frame, vector<Model> * models, int minArea, int m
       cout << bb << endl;
       Mat temp(filteredContours, bb);
       Point c = getCenter(contours[i]);
+      vector<double> sig = getRotSignal(contours[i], c);
+      showHist("Histogram Ref", sig);
       RotatedRect rr = minAreaRect(contours[i]);
-      Model m(temp, c, rr, consize);
+      Model m(temp, c, rr, consize, contours[i]);
       models->push_back(m);
     }
   }
@@ -427,12 +490,15 @@ void mtlib::updateModels(Mat frame, vector<Model> * models, int minArea, int max
     //if the object was found generate new center and orientation data
     //othrewise assume it hasn't moved
     Point c;
-    double a;
-    //namedWindow("Found", CV_WINDOW_AUTOSIZE);
+    double a, ap;
+    namedWindow("Histogram", CV_WINDOW_AUTOSIZE);
     if (foundObject) {
       c = getCenter(contours[bestCont]) + searchArea.tl();
+      vector<double> sig = getRotSignal(contours[bestCont], c - searchArea.tl());
+      //showHist("Histogram", sig);
       a = getRotation(models->at(i), roi_cont, 45);
-      
+      ap = models->at(i).getContourRot(contours[bestCont], c - searchArea.tl());
+      cout << a << ", " << ap << endl;
     } else {
       c = models->at(i).getCenter();
       a = models->at(i).getRotation();
@@ -750,6 +816,11 @@ void printPoint2fArray(Point2f v[], int l) {
   cout << v[l-1] << "]" << endl;
 
 }
+double mtlib::getAngleBetween(Point p1, Point p2) {
+  Point v = p1-p2;
+  return atan2(v.y, v.x)*180/PI + 180;
+}
+//deprecated use get angle between instead
 double mtlib::getGearRotation(Point top, Point center) {
   Point v = top-center;
   return atan2(v.y, v.x)*180/PI;
@@ -799,4 +870,33 @@ Mat  mtlib::fourToOne(Mat src) {
   Mat dst(rowsp, colsp, src.type());
   cv::resize(src, dst, dst.size(), 0, 0);
   return dst;
+}
+
+void mtlib::showHist(const char * window, vector<double> hist) {
+  
+  int height = 0, width = 480, max_height = 0;
+  int bar_width = width/hist.size();
+  for (int i = 0; i < hist.size(); i++) {
+    if (hist[i] > max_height) {
+      max_height  = hist[i];
+    }
+  }
+  if (20*max_height > 640) {
+    for (int i = 0; i < hist.size(); i++) {
+      hist[i] = hist[i]/((double)max_height)*(640.0/20.0);
+    }
+    height = 640;
+  } else {
+    height = 20*max_height;
+  }
+  Mat h = Mat::zeros(Size(width, height), CV_8UC1);
+
+  for (int i = 0; i < hist.size(); i++) {
+    rectangle(h, Point(bar_width*i, height), Point(bar_width*(i+1), height-20*hist[i]), 
+	      Scalar(255, 255, 255), CV_FILLED);
+  }
+  
+  imshow(window, h);
+  waitKey(0);
+  
 }
