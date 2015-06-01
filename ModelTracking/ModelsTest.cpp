@@ -59,10 +59,10 @@ int main(int argc, char* argv[]) {
     }
   }
 
-  int tmpa[] = {1, 2 ,3};
+  /*int tmpa[] = {1, 2 ,3};
   vector<double> tmpv(tmpa,tmpa+sizeof(tmpa)/sizeof(int));
   namedWindow("tmp", CV_WINDOW_AUTOSIZE);
-  showHist("tmp", tmpv);
+  showHist("tmp", tmpv);*/
 
   if (minArea < 0 || maxArea < 0 || minArea > maxArea) {
     Point minMax = getMinAndMaxAreas(video[0]);

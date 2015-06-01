@@ -14,7 +14,7 @@ using namespace cv;
 using namespace std;
 
 int DEF_CHANNEL = 2;
-
+int MAX_DEV = 22;
 bool mtlib::captureVideo(char* src, vector<Mat> * dst, int* fps, Size* s, int* ex) {
 
 
@@ -149,29 +149,30 @@ double angleDist(double a1, double a2) {
 double mtlib::Model::getContourRot(vector<Point> cont, Point c) {
   double rot = getRotation(), min_cost = -1;
   vector<double> sig = getRotSignal(cont, c), all_costs, min_costs;
-  vector<int> offsets;
-  for (int o = 0; o < 360; o++) {
+  vector<int> angles, all_angles;
+  int prev_off = (360 - (int)rot)%360;
+  for (int o = -MAX_DEV; o <= MAX_DEV ; o++) {
     double cost = 0;
     for (int i = 0; i < 360; i++) {
-      double del = sig[(o+i)%360]-oSig[i];
+      double del = sig[(o+i+prev_off+360)%360]-oSig[i];
       cost += del*del;
     }
+    //cout << "ang: " << (360 - ((o+prev_off+360)%360))%360 << " cost: "  << cost << endl;
     all_costs.push_back(cost);
+    all_angles.push_back((360-(o+prev_off+360)%360)%360);
     if (min_cost < 0 || cost < min_cost) min_cost = cost;
   }
-  for (int i = 0; i < 360; i++) {
-    if (all_costs[i] - min_cost < min_cost*0.1 && all_costs[i] < all_costs[(i+1)%360]
-	&& all_costs[i] < all_costs[(i-1+360)%360]) {
+  for (int i = 1; i < all_costs.size()-1; i++) {
+    if (all_costs[i] - min_cost < min_cost*0.15 && all_costs[i] < all_costs[i+1]
+	&& all_costs[i] < all_costs[i-1]) {
       min_costs.push_back(all_costs[i]);
-      offsets.push_back(i);
+      angles.push_back(all_angles[i]);
     }
   }
-  double best_angle= 360-offsets[0];
-  if (best_angle >= 360) best_angle -= 360;
+  double best_angle= angles[0];
   for (int i = 0; i < min_costs.size(); i++) {
-    double angle = 360-offsets[i];
-    if (angle >= 360) angle -= 360;
-    cout << angle << " " << min_costs[i] << endl;
+    double angle = angles[i];
+    //cout << angle << " " << min_costs[i] << endl;
     if (angleDist(angle, rot) < angleDist(best_angle, rot)) {
       best_angle = angle;
     }
@@ -355,11 +356,16 @@ vector<double> mtlib::getRotSignal(vector<Point> contour, Point center) {
   for (int i = 0; i < sig_int.size(); i++) {
     if (sig_int[i] > max) max = sig_int[i];
   }
-  vector<double> sig(360, 0);
+  vector<double> sig1(360, 0), sig2(360, 0);
   for (int i = 0; i < sig_int.size(); i++) {
-    sig[i] = 100.0*((double)sig_int[i])/max;
+    sig1[i] = 100.0*((double)sig_int[i])/max;
   }
-  return sig;
+
+  for (int i = 0; i < sig1.size(); i++) {
+    sig2[i] = (sig1[(i-2+360)%360]+2*sig1[(i-1+360)%360]+3*sig1[i]+2*sig1[(i+1)%360]
+	       +sig1[(i+2)%360])/9;
+  }
+  return sig2;
 }
 double mtlib::getRotation(Model m, Mat frame, double sweep) {
   
@@ -496,9 +502,9 @@ void mtlib::updateModels(Mat frame, vector<Model> * models, int minArea, int max
       c = getCenter(contours[bestCont]) + searchArea.tl();
       vector<double> sig = getRotSignal(contours[bestCont], c - searchArea.tl());
       //showHist("Histogram", sig);
-      a = getRotation(models->at(i), roi_cont, 45);
-      ap = models->at(i).getContourRot(contours[bestCont], c - searchArea.tl());
-      cout << a << ", " << ap << endl;
+      //ap = getRotation(models->at(i), roi_cont, 45);
+      a = models->at(i).getContourRot(contours[bestCont], c - searchArea.tl());
+      //cout << ap << ", " << a << endl;
     } else {
       c = models->at(i).getCenter();
       a = models->at(i).getRotation();
