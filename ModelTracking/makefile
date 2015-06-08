@@ -1,9 +1,10 @@
 CC = clang++
-LDFLAGS=`pkg-config --cflags --libs opencv` -pthread
+LDFLAGS=`pkg-config --cflags --libs opencv` -pthread -ldc1394
 
 mtlib.o : mtlib.h mtlib.cpp
 	${CC} ${LDFLAGS} -c mtlib.cpp
-
+firefly.o : firefly.cpp firefly.h
+	${CC} ${LDFLAGS} -c firefly.cpp
 
 ModelsTest.o: ModelsTest.cpp mtlib.h
 	${CC} ${LDFLAGS} -c ModelsTest.cpp
@@ -26,9 +27,11 @@ GearTracking: GearTracking.o mtlib.o
 AffineTest: AffineTest.cpp mtlib.h
 	${CC} ${LDFLAGS} AffineTest.cpp mtlib.o -o AffineTest
 
-Threshhold: Threshhold.cpp mtlib.h
+Threshhold: Threshhold.cpp mtlib.o 
 	${CC} ${LDFLAGS} Threshhold.cpp mtlib.o -o Threshhold
 
+mbr_tracker: mbr_tracker.cpp mtlib.o firefly.o
+	${CC} ${LDFLAGS} mbr_tracker.cpp mtlib.o firefly.o -o mbr_tracker
 
 all:
 	make ModelsTest
@@ -36,6 +39,7 @@ all:
 	make AffineTest
 	make GearTracking
 	make Threshhold
+	make mbr_tracker
 clean:
 	rm *.o
 	rm ModelsTest
@@ -43,4 +47,4 @@ clean:
 	rm ShrinkTest
 	rm GearTracking
 	rm Threshholdb
-
+	rm mbr_tracker

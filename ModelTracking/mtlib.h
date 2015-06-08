@@ -9,45 +9,53 @@
 #include <string>
 
 namespace mtlib {
-
+  enum mask_t { NOMASK, QUAD_LL, QUAD_LR, QUAD_UL, QUAD_UR, MT_MAX = QUAD_UR };
   class Model {
   public:
     int w, h;
     double area;
     std::vector<cv::Point> centers;
-    std::vector<cv::Mat> templates;
+    std::vector< std::vector<double>  > rotSigs;
+    std::vector< std::vector<cv::Point> > contours;
     std::vector<double> rotations;
-    std::vector<double> rotSig;
-    //returns the center most recently pushed onto the centers vector
-    cv::Point getCenter();
+    mask_t mask;
+    //returns the center at time t. If t < 0 then it returns the most recently added center
+    cv::Point getCenter(int t = -1);
     //calculates the rotation of given contour and center with respect to the model
     double getContourRot(std::vector<cv::Point>, cv::Point);
-    //returns the rotation most recently pushed onto the reotations vector
-    double getRotation();
+    //returns the rotation at time t. If t < 0 then it returns the most recently added rotation
+    double getRotation(int t = -1);
+    //returns the contour at time t. If t < 0 then it returns the most recently added contour
+    std::vector<cv::Point> getContour(int t = -1);
+    //returns the rotation signal at time t. If t < 0 then it returns the most recently 
+    //added rotation signal
+    std::vector<double> getRotationSignal(int t = -1);
     //returns the area to serach for the object in the given frame
     //this is simply the bounding box of the last position enlarged by some factor
     cv::Rect getSearchArea(cv::Mat frame);
-    //adds the given cetner and angle to the centers and rotations vectors
-    void update(cv::Point center, double angle);
-    //returns the rotated template corresponding to the given angle
-    cv::Mat getRotatedTemplate(double angle);
-    //displays all the rotations of the model, mostly for debugging
-    void showModel();
+    //adds the given center, angle, rotation signal, and contour to their respective vectors
+    void update(cv::Point center, double angle, std::vector<double> rotSig,
+                std::vector<cv::Point> contour);
     //Returns the time index most recently added. Calling a method such as drawModel with
     //the value returned will draw the most recent update
     int curTime();
+    //draws the contour of this model at some time index t on the image dst
+    void drawContour(cv::Mat dst, int t);
     //draws a dot for the center and a line for the orientation at some time 
     //index t on the image dst
     void drawModel(cv::Mat dst, int t);
+    //Draws a black mask over the appropriate region on the given matrix at time
+    //index t. Note: does not actually draw the contour, it only 'erases' the contour
+    //if it's already drawn in the right position
+    void drawMask(cv::Mat, int);
     //Returns the appropriate rotated bounding box for some time index t
     cv::RotatedRect getBoundingBox(int t);
     //Draws the bounding box for some time index t on a mat frame with color c
     void drawBoundingBox(cv::Mat frame, int t, cv::Scalar c);
-    //Constructs a new model given a template, a center, a rotated bounding box, the area
-    //of the contour, and the contour itself. 
-    //This involves creating a vector of rotated versions of the model
-    Model(cv::Mat temp, cv::Point center, cv::RotatedRect bounding, double a, 
-          std::vector<cv::Point>);
+    //Constructs a new model given the center of the contour, its bounding box, its area
+    //and the contour itself
+    Model(cv::Point center, cv::RotatedRect bounding, double a, 
+          std::vector<cv::Point> cont);
 
   private:
     const static int numTemplates = 360;
@@ -55,6 +63,7 @@ namespace mtlib {
     const static double searchEnlargement;
     cv::RotatedRect bounding;
     std::vector<double> oSig;
+    std::vector<cv::Point> contour;
   };
 
 
@@ -89,13 +98,18 @@ namespace mtlib {
   //in contours and hierarchy. A channel can optionally be supplied to apply the filters to
   //a channel other than 2
   void filterAndFindContours(cv::Mat src, std::vector< std::vector<cv::Point> > * contours,
-			     std::vector<cv::Vec4i> * hierarchy);
+			     std::vector<cv::Vec4i> * hierarchy, 
+                             cv::Point off=cv::Point(0, 0));
 
   //Does the same thing as above but with different filters for Elizabeth's videos
   void filterAndFindContoursElizabeth(cv::Mat src,
                                       std::vector< std::vector<cv::Point> > * contours,
                                       std::vector<cv::Vec4i> * hierarchy);
 
+  //Draws the contours with areas in the given range onto the dst quickly
+  //does not apply filters
+  void drawContoursFast(cv::Mat dst, std::vector< std::vector<cv::Point> > * contours,
+			     std::vector<cv::Vec4i> * hierarchy, int minArea, int maxArea);
   //Draws the contours with areas in the given range onto the dst and then
   //applies some filters
   void drawContoursAndFilter(cv::Mat dst, std::vector< std::vector<cv::Point> > * contours,
@@ -103,15 +117,9 @@ namespace mtlib {
 
   //Uses moments of the contours to find the center of the given contour
   cv::Point getCenter(std::vector<cv::Point> contour);
-
+  
   //Convert a contour into a rotation signal that can be used to determine orientation
   std::vector<double> getRotSignal(std::vector<cv::Point>, cv::Point);
-  //Uses template matching to find the rotation of the model in the frame.
-  //This relies on the object to be matched being at least the main object in the frame
-  //The frame should also have had the same filters applied to it as the model
-  //The sweep parameter determines how big of an angle the algorithm will check around the last
-  //angle of the model
-  double getRotation(mtlib::Model m, cv::Mat frame, double sweep);
 
   //Takes a frame from a video (probably the first one), identifies the individual
   //contours (that lie between the min and max area) and then generates a model for each one,
@@ -137,7 +145,9 @@ namespace mtlib {
   //given vector.
   void writeFile(const char* filename, std::vector<mtlib::Model> models);
 
-
+  //Takes a frame and a vector of objects found in that frame and prompts the user to select
+  //Which type of masking they want for each object
+  void selectMasks(cv::Mat, std::vector<mtlib::Model> *);
   //Takes a frame and a vector of objects found in that frame and prompts the user to select
   //models from that frame.
   //returns a vector containing the indicies of the selected models
@@ -162,8 +172,13 @@ namespace mtlib {
                         std::vector<cv::Point>, cv::Point);
   void drawCorners(cv::Mat*, std::vector<cv::Point>);
 
-  void showHist(const char *, std::vector<double>);
+
+  cv::Mat makeHistImg(std::vector<double>, int off=0);
+  void showHist(const char *, std::vector<double>, int off=0);
   
+
+  void combine(cv::Mat&, cv::Mat, cv::Mat);
 }
 
 #endif
+

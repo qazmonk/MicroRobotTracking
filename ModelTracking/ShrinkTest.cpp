@@ -367,15 +367,7 @@ void rowGrad(cv::Mat src, cv::Mat dst) {
   }
 }
 
-void combine(cv::Mat &dst, cv::Mat img1, cv::Mat img2) {
-  int rows = img1.rows;
-  int cols = img2.cols;
-  dst.create(rows, cols*2, img1.type());
-  cv::Mat tmp = dst(cv::Rect(0, 0, cols, rows));
-  img1.copyTo(tmp);
-  tmp = dst(cv::Rect(cols, 0, cols, rows));
-  img2.copyTo(tmp);
-}
+
 void setPolarEdges(cv::Mat polar, Point cent) {
   for (int r = 0; r < polar.rows; r++) {
     for (int c = 0; c < polar.cols; c++) {

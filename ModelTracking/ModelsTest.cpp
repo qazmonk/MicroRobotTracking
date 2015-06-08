@@ -1,6 +1,5 @@
 #include "opencv2/highgui/highgui.hpp"
 #include "opencv2/imgproc/imgproc.hpp"
-//#include "opencv2/nonfree/nonfree.hpp"
 #include "opencv2/features2d/features2d.hpp"
 #include "opencv2/calib3d/calib3d.hpp"
 #include <iostream>
@@ -71,7 +70,7 @@ int main(int argc, char* argv[]) {
   }
   out.reserve(video.size());
  
-  cout << "generating models...";
+  cout << "generating models..." << flush;
   mtlib::generateModels(video[0], &models, minArea, maxArea);
   cout << "done" << endl;
   vector<int> selected =  mtlib::selectObjects(video[0], &models);
@@ -80,8 +79,9 @@ int main(int argc, char* argv[]) {
     selectedModels.push_back(models[selected[i]]);
   }
   models = selectedModels;
+  selectMasks(video[0], &models);
   namedWindow(window, CV_WINDOW_AUTOSIZE);
-
+  
 
   clock_t t;
   for (int i = startFrame; i < numFrames; i += skip) {
@@ -109,9 +109,18 @@ int main(int argc, char* argv[]) {
       models[n].drawBoundingBox(dst, t, Scalar(255, 0, 0));
       models[n].drawModel(dst, t);
     }
+    
+    vector<double> sig = models[0].getRotationSignal();
+    Mat h = makeHistImg(sig, 360-models[0].getRotation());
+
     t = clock() - t;
     printf("It took %f seconds to calculate that frame\n", ((float)t)/CLOCKS_PER_SEC);
-    out.push_back(dst);
+
+    
+    Mat dst_fin;
+    combine(dst_fin, dst, h);
+    
+    out.push_back(dst_fin);
     
   }
   

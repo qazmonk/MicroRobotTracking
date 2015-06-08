@@ -1,0 +1,7 @@
+* Main sections
+** Input capture
+*** Needs to indicate when input has failed
+** Processing of input
+*** Outputting
+** User Input
+*** Can break input processing into before and after user input
