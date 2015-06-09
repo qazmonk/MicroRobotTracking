@@ -8,6 +8,12 @@
 #include <math.h>
 #include <sys/stat.h>
 #include<unistd.h>
+#include <unordered_map>
+#include <set>
+#include <unordered_set>
+#include <climits>
+#include "ttmath/ttmath.h"
+
 #define PI 3.14159265
 
 using namespace cv;
@@ -16,22 +22,21 @@ using namespace std;
 int DEF_CHANNEL = 2;
 int CONT_THICKNESS = 3;
 int MAX_DEV = 22;
-bool mtlib::captureVideo(char* src, vector<Mat> * dst, int* fps, Size* s, int* ex) {
-
-
+bool mtlib::captureVideo(char* src, vector<Mat> * dst, int* fps, Size* s, int* ex) 
+{
   VideoCapture cap(src);
-
   *fps = cap.get(CV_CAP_PROP_FPS);
   *s = Size((int) cap.get(CV_CAP_PROP_FRAME_WIDTH),   
-	    (int) cap.get(CV_CAP_PROP_FRAME_HEIGHT));
+            (int) cap.get(CV_CAP_PROP_FRAME_HEIGHT));
 
   *ex = static_cast<int>(cap.get(CV_CAP_PROP_FOURCC));
 
-  if (!cap.isOpened()) {
+  if (!cap.isOpened()) 
+  {
     cout << "cannot open the video file" << endl;
     return false;
   }
-	
+  
   while (1) {
 
     
@@ -43,9 +48,6 @@ bool mtlib::captureVideo(char* src, vector<Mat> * dst, int* fps, Size* s, int* e
       return true;
     }
     dst->push_back(frame);
-		
-
-		
   }
   return true;
 }
@@ -106,7 +108,7 @@ Mat enlargeFromCenter(Mat img, Size ns) {
 }
 
 mtlib::Model::Model(Point init_center, RotatedRect init_bounding, double a,
-		    vector<Point> cont) {
+                    vector<Point> cont) {
   area = a;
   bounding = init_bounding;
   oSig = getRotSignal(cont, init_center);
@@ -160,7 +162,7 @@ double mtlib::Model::getContourRot(vector<Point> cont, Point c) {
   }
   for (int i = 1; i < all_costs.size()-1; i++) {
     if (all_costs[i] - min_cost < min_cost*0.15 && all_costs[i] < all_costs[i+1]
-	&& all_costs[i] < all_costs[i-1]) {
+        && all_costs[i] < all_costs[i-1]) {
       min_costs.push_back(all_costs[i]);
       angles.push_back(all_angles[i]);
     }
@@ -187,6 +189,18 @@ vector<Point> mtlib::Model::getContour(int t) {
 vector<double> mtlib::Model::getRotationSignal(int t) {
   if (t < 0) { return rotSigs.back(); }
   return rotSigs[t];
+}
+double mtlib::Model::getArea() {
+  return area;
+}
+void mtlib::Model::nextMask() {
+  mask = (mtlib::mask_t)((mask + 1)%(mtlib::MT_MAX + 1));
+}
+mtlib::mask_t mtlib::Model::getMask() {
+  return mask;
+}
+void mtlib::Model::setMask(mask_t m) {
+  mask = m;
 }
 //Helper function for avoidining getting ROIs that fall outsie the frame
 Point moveInside(Point c, Size s) {
@@ -217,7 +231,7 @@ int mtlib::Model::curTime() {
   return centers.size() - 1;
 }
 void mtlib::Model::update(Point center, double rotation, vector<double> rotSig,
-			  vector<Point> cont) {
+                          vector<Point> cont) {
   centers.push_back(center);
   rotations.push_back(rotation);
   rotSigs.push_back(rotSig);
@@ -227,8 +241,8 @@ void mtlib::Model::update(Point center, double rotation, vector<double> rotSig,
 
 
 RotatedRect mtlib::Model::getBoundingBox(int t) {
-  double rotate = rotations[t];
-  return RotatedRect(centers[t], bounding.size, bounding.angle-rotate);
+  double rotate = getRotation(t);
+  return RotatedRect(getCenter(t), bounding.size, bounding.angle-rotate);
 }
 void mtlib::Model::drawBoundingBox(Mat frame, int t, Scalar c) {
   Point2f verticies[4];
@@ -243,7 +257,7 @@ namespace hvars {
   bool lastMouseButton = false;
   Mat contours;
 }
-bool pointInRotatedRectangle(int x, int y, RotatedRect rr) {
+bool mtlib::pointInRotatedRectangle(int x, int y, RotatedRect rr) {
   Point2f verticies[4];
   rr.points(verticies);
   int count = 0;
@@ -271,18 +285,19 @@ void maskCallback(int event, int x, int y, int, void*) {
     double min_area = -1;
     int min = -1;
     for (int i = 0; i < models->size(); i++) {
-      if (pointInRotatedRectangle(x, y, models->at(i).getBoundingBox(0))
-          && (min_area < 0 || models->at(i).area <= min_area)) {
-	min_area = models->at(i).area;
-	min = i;
+      if (mtlib::pointInRotatedRectangle(x, y, models->at(i).getBoundingBox(0))
+          && (min_area < 0 || models->at(i).getArea() <= min_area)) {
+        min_area = models->at(i).getArea();
+        min = i;
       }
     }
     if (min > -1) {
-      models->at(min).mask = (mtlib::mask_t)((models->at(min).mask + 1)%(mtlib::MT_MAX + 1));
+      models->at(min).nextMask();
+      //
       for (int i = 0; i < models->size(); i++) {
-	models->at(i).drawContour(frame, 0);
-	models->at(i).drawMask(frame, 0);
-	models->at(i).drawBoundingBox(frame, 0, Scalar(0, 0, 255));
+        models->at(i).drawContour(frame, 0);
+        models->at(i).drawMask(frame, 0);
+        models->at(i).drawBoundingBox(frame, 0, Scalar(0, 0, 255));
       }
       imshow("Select Highlights", frame);
     }
@@ -293,10 +308,10 @@ void mtlib::selectMasks(Mat frame, vector<Model> * models) {
   hvars::models = models;
   namedWindow("Select Highlights", CV_WINDOW_AUTOSIZE);
   Mat dst = Mat::zeros(frame.size(), CV_8UC3);
-  double minArea = models->at(0).area;
-  double maxArea = models->at(0).area;
+  double minArea = models->at(0).getArea();
+  double maxArea = models->at(0).getArea();
   for (int i = 1; i < models->size(); i++) {
-    double t_area = models->at(i).area;
+    double t_area = models->at(i).getArea();
     if (t_area < minArea)
       minArea = t_area;
     if (t_area > maxArea)
@@ -321,7 +336,7 @@ void mtlib::selectMasks(Mat frame, vector<Model> * models) {
   destroyWindow("Select Highlights");
 }
 void mtlib::filterAndFindContoursElizabeth(Mat frame, vector< vector<Point> > * contours, 
-				  vector<Vec4i> * hierarchy)
+                                           vector<Vec4i> * hierarchy)
 {
   vector<Mat> rgb;
   Mat t0 = Mat::zeros(frame.size(), CV_8UC1);
@@ -330,19 +345,19 @@ void mtlib::filterAndFindContoursElizabeth(Mat frame, vector< vector<Point> > * 
   split(frame, rgb);
 
   /*namedWindow("r", CV_WINDOW_AUTOSIZE);
-  namedWindow("g", CV_WINDOW_AUTOSIZE);
-  namedWindow("b", CV_WINDOW_AUTOSIZE);
-  imshow("r", rgb[1]);
-  imshow("g", rgb[0]);
-  imshow("b", rgb[2]);
-  waitKey(0);*/
+    namedWindow("g", CV_WINDOW_AUTOSIZE);
+    namedWindow("b", CV_WINDOW_AUTOSIZE);
+    imshow("r", rgb[1]);
+    imshow("g", rgb[0]);
+    imshow("b", rgb[2]);
+    waitKey(0);*/
   
   //namedWindow("Thresh", CV_WINDOW_AUTOSIZE);
   
   //blur(rgb[DEF_CHANNEL], t0, Size(5, 5), Point(-1, -1));
   //bilateralFilter(t0, t, 12, 50, 50);
   adaptiveThreshold(rgb[DEF_CHANNEL], t2, 255, ADAPTIVE_THRESH_GAUSSIAN_C,
-		    THRESH_BINARY_INV, 91, 1);
+                    THRESH_BINARY_INV, 91, 1);
   //imshow("Thresh", t2);
   findContours(t2, *contours, *hierarchy, CV_RETR_LIST, CV_CHAIN_APPROX_SIMPLE);
 }
@@ -360,38 +375,35 @@ void mtlib::drawLines(Mat dst, vector<Vec2f> * lines) {
   for( size_t i = 0; i < lines->size(); i++ )
   {
     float rho = (*lines)[i][0], theta = (*lines)[i][1];
-     Point pt1, pt2;
-     double a = cos(theta), b = sin(theta);
-     double x0 = a*rho, y0 = b*rho;
-     pt1.x = cvRound(x0 + 1000*(-b));
-     pt1.y = cvRound(y0 + 1000*(a));
-     pt2.x = cvRound(x0 - 1000*(-b));
-     pt2.y = cvRound(y0 - 1000*(a));
-     line( dst, pt1, pt2, Scalar(255,255,0), 1, CV_AA);
+    Point pt1, pt2;
+    double a = cos(theta), b = sin(theta);
+    double x0 = a*rho, y0 = b*rho;
+    pt1.x = cvRound(x0 + 1000*(-b));
+    pt1.y = cvRound(y0 + 1000*(a));
+    pt2.x = cvRound(x0 - 1000*(-b));
+    pt2.y = cvRound(y0 - 1000*(a));
+    line( dst, pt1, pt2, Scalar(255,255,0), 1, CV_AA);
   }
 }
 void mtlib::filterAndFindContours(Mat frame, vector< vector<Point> > * contours, 
-				  vector<Vec4i> * hierarchy, Point off)
+                                  vector<Vec4i> * hierarchy, Point off)
 {
-  vector<Mat> rgb;
   Mat t = Mat::zeros(frame.size(), CV_8UC1);
-  split(frame, rgb);
-
-  /*namedWindow("r", CV_WINDOW_AUTOSIZE);
-  namedWindow("g", CV_WINDOW_AUTOSIZE);
-  namedWindow("b", CV_WINDOW_AUTOSIZE);
-  imshow("r", rgb[1]);
-  imshow("g", rgb[0]);
-  imshow("b", rgb[2]);
-  waitKey(0);*/
-  
-  adaptiveThreshold(rgb[DEF_CHANNEL], t, 255, ADAPTIVE_THRESH_MEAN_C, THRESH_BINARY, 27, 5);
-  
+  if (DEF_CHANNEL >= 0 && DEF_CHANNEL < 3) {
+    vector<Mat> rgb;
+    split(frame, rgb);
+    adaptiveThreshold(rgb[DEF_CHANNEL], t, 255, ADAPTIVE_THRESH_MEAN_C, THRESH_BINARY, 27, 5);
+  } else {
+    Mat t1, t2;
+    cvtColor(frame, t1, CV_RGB2GRAY);
+    adaptiveThreshold(t1, t, 255, ADAPTIVE_THRESH_MEAN_C, THRESH_BINARY, 27, 5);
+    //blur(t2, t, Size(5, 5));
+  }
   findContours(t, *contours, *hierarchy, CV_RETR_LIST, CV_CHAIN_APPROX_NONE, off);
 }
 
 void mtlib::drawContoursFast(Mat dst, vector< vector<Point> > * contours, 
-				  vector<Vec4i> * hierarchy, int minArea, int maxArea)
+                             vector<Vec4i> * hierarchy, int minArea, int maxArea)
 {
   //loop through contours filtering out ones that are too small or too big
   for (int i = 0; i < contours->size(); i++) {
@@ -400,14 +412,14 @@ void mtlib::drawContoursFast(Mat dst, vector< vector<Point> > * contours,
       //drawContours(contour_drawing, *contours, i, color, 2, 8, *hierarchy, 0, Point());
       vector<Point> contour = contours->at(i);
       for (int j = 0; j < contour.size(); j++) {
-	dst.at<Vec3b>(contour[j]) = Vec3b(255, 255, 255);
+        dst.at<Vec3b>(contour[j]) = Vec3b(255, 255, 255);
       }
     }
   }
  
 }
 void mtlib::drawContoursAndFilter(Mat dst, vector< vector<Point> > * contours, 
-				  vector<Vec4i> * hierarchy, int minArea, int maxArea)
+                                  vector<Vec4i> * hierarchy, int minArea, int maxArea)
 {
 
   Mat contour_drawing = Mat::zeros(dst.size(), dst.type());
@@ -421,7 +433,7 @@ void mtlib::drawContoursAndFilter(Mat dst, vector< vector<Point> > * contours,
       //drawContours(contour_drawing, *contours, i, color, 2, 8, *hierarchy, 0, Point());
       vector<Point> contour = contours->at(i);
       for (int j = 0; j < contour.size(); j++) {
-	circle(contour_drawing, contour[j], 1, Scalar(255, 255, 255));
+        circle(contour_drawing, contour[j], 1, Scalar(255, 255, 255));
       }
     }
   }
@@ -441,7 +453,7 @@ vector<double> smooth(vector<double> data) {
   vector<double> data_out(data.size());
   for (int i = 0; i < data.size(); i++) {
     data_out[i] = (data[(i-2+360)%360]+2*data[(i-1+360)%360]+3*data[i]+2*data[(i+1)%360]
-		   +data[(i+2)%360])/9;
+                   +data[(i+2)%360])/9;
   }
   return data_out;
 }
@@ -460,16 +472,16 @@ vector<double> mtlib::getRotSignal(vector<Point> contour, Point center) {
     sig_sum[a] += d;
   }
   /*int max = 0;
-  long total = 0;
-  for (int i = 0; i < sig_int.size(); i++) {
+    long total = 0;
+    for (int i = 0; i < sig_int.size(); i++) {
     if (sig_int[i] > max) max = sig_int[i];
     total += sig_int[i];
-  }
-  double avg = ((double)total)/sig_int.size();
-  vector<double> sig1(360, 0), sig2(360, 0);
+    }
+    double avg = ((double)total)/sig_int.size();
+    vector<double> sig1(360, 0), sig2(360, 0);
 
 
-  for (int i = 0; i < sig_int.size(); i++) {
+    for (int i = 0; i < sig_int.size(); i++) {
     sig1[i] = 50*((double)sig_int[i])/avg;
     }*/
 
@@ -481,21 +493,21 @@ vector<double> mtlib::getRotSignal(vector<Point> contour, Point center) {
       double m = 0;
       double s = 0;
       if (j < sig.size()) {
-	if (i > 0) {
-	  m = ((sig_sum[j]/sig_cnt[j]) - (sig_sum[i-1]/sig_cnt[i-1]))/(j-(i-1));
-	  s = sig_sum[i-1]/sig_cnt[i-1];
-	} else {
-	  s = sig_sum[j]/sig_cnt[j];
-	}
+        if (i > 0) {
+          m = ((sig_sum[j]/sig_cnt[j]) - (sig_sum[i-1]/sig_cnt[i-1]))/(j-(i-1));
+          s = sig_sum[i-1]/sig_cnt[i-1];
+        } else {
+          s = sig_sum[j]/sig_cnt[j];
+        }
       } else {
-	if (i > 0) {
-	  s = sig_sum[i-1]/sig_cnt[i-1];
-	} else {
-	  cout << "All zero rotation signal" << endl;
-	}
+        if (i > 0) {
+          s = sig_sum[i-1]/sig_cnt[i-1];
+        } else {
+          cout << "All zero rotation signal" << endl;
+        }
       }
       for (int n = i; n < j; n++) {
-	sig[n] = s + m * (n - (i-1));
+        sig[n] = s + m * (n - (i-1));
       }
       i = j-1;
     } else {
@@ -537,65 +549,76 @@ void mtlib::Model::drawMask(Mat dst, int t) {
     case QUAD_LR:     
     case QUAD_UL:
     case QUAD_UR:
-      RotatedRect mask_rr;
       int idir, jdir;
       switch(mask) {
       case QUAD_LL: 
-	mask_rr = RotatedRect(c2f-ihat*((double)quad.width/2)-jhat*((double)quad.height/2), 
-			      quad, rr.angle);
-	idir = 1;
-	jdir = 1;
-	cout << "Drawing QUAD_LL [" << mask_rr.center << ", " << mask_rr.size
-	     << ", " << mask_rr.angle << "]"  << endl;
-
-	break;
+        idir = 1;
+        jdir = 1;
+        break;
       case QUAD_LR: 
-	idir = -1;
-	jdir = 1;
-	mask_rr = RotatedRect(c2f-ihat*(quad.width/2)+jhat*(quad.height/2), quad, rr.angle);
-	cout << "Drawing QUAD_LR [" << mask_rr.center << ", " << mask_rr.size
-	     << ", " << mask_rr.angle << "]"  << endl;
-	break;
+        idir = -1;
+        jdir = 1;
+        break;
       case QUAD_UL: 
-	idir = 1;
-	jdir = -1;
-	mask_rr = RotatedRect(c2f+ihat*(quad.width/2)-jhat*(quad.height/2), quad, rr.angle);
-	cout << "Drawing QUAD_UL [" << mask_rr.center << ", " << mask_rr.size
-	     << ", " << mask_rr.angle << "]"  << endl;
-	break;
+        idir = 1;
+        jdir = -1;
+        break;
       case QUAD_UR: 
-	idir = -11; jdir = -1;
-	mask_rr = RotatedRect(c2f+ihat*(quad.width/2)+jhat*(quad.height/2), quad, rr.angle);
-	cout << "Drawing QUAD_UR [" << mask_rr.center << ", " << mask_rr.size
-	     << ", " << mask_rr.angle << "]"  << endl;
-	break;
+        idir = -1; 
+        jdir = -1;
+        break;
       default:
-	cout << "Somehow reached the quad branch mistakenly" << endl;
-	break;
+        cout << "Somehow reached the quad branch mistakenly" << endl;
+        break;
       }
       for (int i = 0; i < cont.size(); i++) {
-	Point v = cont[i] - c;
+        Point v = cont[i] - c;
         double idp = v.x*ihat.x + v.y*ihat.y;
-	double jdp = v.x*jhat.x + v.y*jhat.y;
-	if (idp*idir > 0  && jdp*jdir > 0) {
-	  circle(dst, cont[i], CONT_THICKNESS/2, Scalar(0, 0, 0), -1);
-	}
+        double jdp = v.x*jhat.x + v.y*jhat.y;
+        if (idp*idir >= 0  && jdp*jdir >= 0) {
+          circle(dst, cont[i], CONT_THICKNESS/2, Scalar(0, 0, 0), -1);
+        }
       }
-      /*Point2f vertices2f[4];
-      Point vertices[4];
-      mask_rr.points(vertices2f);
-      for(int i = 0; i < 4; ++i){
-	vertices[i] = vertices2f[i];
+      break;}
+    {case HALF_L:
+    case HALF_R:
+    case HALF_U:
+    case HALF_D:
+      int idir, jdir;
+      switch(mask) {
+      case HALF_L:
+        idir = -1;
+        jdir = 0;
+        break;
+      case HALF_R:
+        idir = 1;
+        jdir = 0;
+        break;
+      case HALF_U:
+        idir = 0;
+        jdir = 1;
+        break;
+      case HALF_D:
+        idir = 0;
+        jdir = -1;
+        break;
+      default:
+        cout << "Somehow reached half plane branch accidentally" << endl;
       }
-      fillConvexPoly(dst, vertices, 4, Scalar(0, 0, 0));*/
-      /*line(dst, c, c + 10*ihat, Scalar(0, 255, 255), 2);
-	line(dst, c, c + 10*jhat, Scalar(0, 0, 255), 2);*/
+      for (int i = 0; i < cont.size(); i++) {
+        Point v = cont[i] - c;
+        double idp = v.x*ihat.x + v.y*ihat.y;
+        double jdp = v.x*jhat.x + v.y*jhat.y;
+        if (idp*idir >= 0  && jdp*jdir >= 0) {
+          circle(dst, cont[i], CONT_THICKNESS/2, Scalar(0, 0, 0), -1);
+        }
+      }      
       break;}
   case NOMASK:
     break;
   }
 }
-bool compare_model(mtlib::Model m1, mtlib::Model m2) { return m1.area > m2.area; }
+bool compare_model(mtlib::Model m1, mtlib::Model m2) { return m1.getArea() > m2.getArea(); }
 
 void mtlib::generateModels(Mat frame, vector<Model> * models, int minArea, int maxArea) {
   vector< vector<Point> > contours;
@@ -630,55 +653,69 @@ void mtlib::updateModels(Mat frame, vector<Model> * models, int minArea, int max
   //namedWindow("Searching", CV_WINDOW_AUTOSIZE);
   
   for (int i = 0; i < models->size(); i++) {
+    cout << "searching for model " << i << endl;
     //Get part of image in search area
     Rect searchArea = models->at(i).getSearchArea(frame);
     Mat roi(frame.clone(), searchArea);
     //do contour finding and filtering
     vector< vector<Point> > contours;
     vector<Vec4i> hierarchy;
+    cout << "finding contours" << endl;
     filterAndFindContours(roi, &contours, &hierarchy, searchArea.tl());
     /*Mat roi_cont = Mat::zeros(roi.size(), CV_8UC1);
       drawContoursAndFilter(roi_cont, &contours, &hierarchy, minArea, maxArea);*/
     //imshow("Searching", roi_cont);
     //serach contours for the object
-    int bestCont = 0, area_diff = abs(contourArea(contours[i]) - models->at(i).area);
-    bool foundObject = false;
-    for (int n = 1; n < contours.size(); n++) {
-      double consize = contourArea(contours[n]);
-      double consize_diff = abs(consize - models->at(i).area);
-      if (consize > minArea && consize < maxArea && consize_diff < area_diff) {
+    cout << "searching contours for model" << endl;
+    if (contours.size() > 0) {
+      cout << "found some contours" << endl;
+      int bestCont = 0, area_diff = abs(contourArea(contours[0]) - models->at(i).getArea());
+      bool foundObject = false;
+      for (int n = 0; n < contours.size(); n++) {
+        cout << contours[n].size() << endl;
+        double consize = contourArea(contours[n]);
+        double consize_diff = abs(consize - models->at(i).getArea());
+        if (consize > minArea && consize < maxArea && consize_diff <= area_diff) {
 	
-	foundObject = true;
-	bestCont = n;
-	area_diff = consize_diff;
+          foundObject = true;
+          bestCont = n;
+          area_diff = consize_diff;
+        }
       }
-    }
-    cout << "Found object: " << std::boolalpha << foundObject << endl;
-    //if the object was found generate new center and orientation data
-    //othrewise assume it hasn't moved
-    Point c;
-    double a, ap;
-    vector<double> r;
-    vector<Point> cont;
-    if (foundObject) {
-      cout << "area_diff = " << area_diff << endl;
-      c = getCenter(contours[bestCont]);
-      r = getRotSignal(contours[bestCont], c);
-      //showHist("Histogram", sig);
-      //ap = getRotation(models->at(i), roi_cont, 45);
-      a = models->at(i).getContourRot(contours[bestCont], c);
-      //cout << ap << ", " << a << endl;
-      cont = contours[bestCont];
+      cout << "Found object: " << std::boolalpha << foundObject << endl;
+      //if the object was found generate new center and orientation data
+      //othrewise assume it hasn't moved
+      Point c;
+      double a, ap;
+      vector<double> r;
+      vector<Point> cont;
+      if (foundObject) {
+        cout << "area_diff = " << area_diff << endl;
+        c = getCenter(contours[bestCont]);
+        r = getRotSignal(contours[bestCont], c);
+        //showHist("Histogram", sig);
+        //ap = getRotation(models->at(i), roi_cont, 45);
+        a = models->at(i).getContourRot(contours[bestCont], c);
+        //cout << ap << ", " << a << endl;
+        cont = contours[bestCont];
+      } else {
+        cout << "found no contours" << endl;
+        c = models->at(i).getCenter();
+        a = models->at(i).getRotation();
+        r = models->at(i).getRotationSignal();
+        cont = models->at(i).getContour();
+      }
+      //circle(frame, c, 4, Scalar(255, 0, 0), -1, 8, 0);
+      //imshow("Found", frame);
+      //waitKey(0);
+      models->at(i).update(c, a, r, cont); 
     } else {
-      c = models->at(i).getCenter();
-      a = models->at(i).getRotation();
-      r = models->at(i).getRotationSignal();
-      cont = models->at(i).getContour();
+      Point c = models->at(i).getCenter();
+      double a = models->at(i).getRotation();
+      vector<double> r = models->at(i).getRotationSignal();
+      vector<Point> cont = models->at(i).getContour();
+      models->at(i).update(c, a, r, cont); 
     }
-    //circle(frame, c, 4, Scalar(255, 0, 0), -1, 8, 0);
-    //imshow("Found", frame);
-    //waitKey(0);
-    models->at(i).update(c, a, r, cont);
   }
   
 }
@@ -717,7 +754,7 @@ void applyFilter(int, void*) {
     cout << "Filling cache" << endl;
     trackbarVars::cache[idx1][idx2] = Mat::zeros(trackbarVars::frame.size(), CV_8UC3);
     mtlib::drawContoursFast(trackbarVars::cache[idx1][idx2], &trackbarVars::contours, 
-			    &trackbarVars::hierarchy, trackbarVars::min, trackbarVars::max);
+                            &trackbarVars::hierarchy, trackbarVars::min, trackbarVars::max);
     trackbarVars::cache_filled[idx1][idx2] = true;
   }
   imshow("Frame", trackbarVars::cache[idx1][idx2]);      
@@ -734,7 +771,7 @@ Point mtlib::getMinAndMaxAreas(Mat frame) {
   trackbarVars::frame = frame;
   trackbarVars::disp = Mat::zeros(trackbarVars::frame.size(), CV_8UC1);
   mtlib::filterAndFindContours(trackbarVars::frame, &trackbarVars::contours, 
-			       &trackbarVars::hierarchy);
+                               &trackbarVars::hierarchy);
   int steps = trackbarVars::num_steps;
   for (int i = 0; i < steps; i++) {
     for (int j = 0; j < steps; j++) {
@@ -755,11 +792,11 @@ void mtlib::writeFile(const char* filename, vector<Model> models) {
   ofstream file;
   file.open(filename, ios::out);
   if (file.is_open()) {
-    for (int i = 0; i < models[0].centers.size(); i++) {
+    for (int i = 0; i < models[0].curTime(); i++) {
       file << i;
       for (int j = 0; j < models.size(); j++) {
-	file << " " << models[j].centers[i].x << " " << models[j].centers[i].y 
-	     << " " << models[j].rotations[i];
+        file << " " << models[j].getCenter(i).x << " " << models[j].getCenter(i).y 
+             << " " << models[j].getRotation(i);
       }
       file << endl;
     }
@@ -788,10 +825,10 @@ void selectROICallback(int event, int x, int y, int, void*) {
     double min_area = -1;
     int min = -1;
     for (int i = 0; i < models->size(); i++) {
-      if (pointInRotatedRectangle(x, y, models->at(i).getBoundingBox(0))
-          && (min_area < 0 || models->at(i).area <= min_area)) {
+      if (mtlib::pointInRotatedRectangle(x, y, models->at(i).getBoundingBox(0))
+          && (min_area < 0 || models->at(i).getArea() <= min_area)) {
         min = i;
-        min_area = models->at(i).area;
+        min_area = models->at(i).getArea();
       }
     }
     if (min != -1) {
@@ -820,10 +857,10 @@ vector<int> mtlib::selectObjects(Mat frame, vector<Model> * models) {
   namedWindow("Select ROIs", CV_WINDOW_AUTOSIZE);
 
   Mat dst = Mat::zeros(frame.size(), CV_8UC3);
-  double minArea = models->at(0).area;
-  double maxArea = models->at(0).area;
+  double minArea = models->at(0).getArea();
+  double maxArea = models->at(0).getArea();
   for (int i = 1; i < models->size(); i++) {
-    double t_area = models->at(i).area;
+    double t_area = models->at(i).getArea();
     if (t_area < minArea)
       minArea = t_area;
     if (t_area > maxArea)
@@ -873,6 +910,7 @@ void on_mouse( int e, int x, int y, int d, void *ptr )
 
 void mtlib::getNPoints(int n, string window, vector<Point> *dst, Mat src) {
   Point p;
+  int start = dst->size();
   setMouseCallback(window,on_mouse, (void*)(&p));
   for (int i = 0; i < n; i++) {
     cout << "Click and press button to record a point (" << i+1 << "/" << n << ")" << endl;
@@ -880,7 +918,7 @@ void mtlib::getNPoints(int n, string window, vector<Point> *dst, Mat src) {
     dst->push_back(p);
     new_point = false;
     Mat dst_mat = src.clone();
-    drawCorners(&dst_mat, *dst);
+    drawCorners(&dst_mat, *dst, start, start+i+1);
     imshow(window, dst_mat);
   }
 }
@@ -894,15 +932,15 @@ void mtlib::getNPoints(int n, string window, vector<Point> *dst, Mat src) {
 //write a capture function that will call the firefly capture method and pass it to this method
 //The dimensions and coordinates are used to position the DMD window
 vector<Point> mtlib::getAffineTransformPoints(Mat frame, Mat (*capture)(),
-					      int w, int h, int x, int y) {
+                                              int w, int h, int x, int y) {
 
   vector<Point> ps;
   Point p;
   ps.reserve(6);
 
-  Mat white(608, 648, CV_8UC1, 255);
-  Mat img_bw(frame.rows, frame.cols, CV_8UC1, 255);
-  Mat gray_img(frame.rows, frame.cols, CV_8UC1, 255);
+  Mat white;//(608, 648, CV_8UC1, 255);
+  Mat img_bw;//(frame.rows, frame.cols, CV_8UC1, 255);
+  Mat gray_img;//(frame.rows, frame.cols, CV_8UC1, 255);
   
   namedWindow("ueye", CV_WINDOW_AUTOSIZE);
   namedWindow("dmd", CV_WINDOW_NORMAL);
@@ -922,9 +960,12 @@ vector<Point> mtlib::getAffineTransformPoints(Mat frame, Mat (*capture)(),
   cvtColor(frame, gray_img, CV_BGR2GRAY);
   adaptiveThreshold(gray_img, img_bw, 255, ADAPTIVE_THRESH_MEAN_C, THRESH_BINARY, 27, 5);
 
-  //show an all white image on the dmd
+  /*//show an all white image on the dmd
   imshow("dmd", white);
-  waitKey(300); 
+  waitKey(300); */
+  //show thresholded image on dmd
+  imshow("dmd", img_bw);
+  waitKey(300);
 
   //cature another frame and display it
   frame = (*capture)();
@@ -942,23 +983,22 @@ vector<Point> mtlib::getAffineTransformPoints(Mat frame, Mat (*capture)(),
   //I'm not sure why you chose these specific numbers I had to change 640 to 630 for the demo
   //with a video with width 640 since it crashes in that case.
   //They can easily be moved to variables to change them easier
-  Rect myROI(1, 1, 630, 479);
-  Mat img_bw_crop = img_bw(myROI).clone();
+  //Rect myROI(1, 1, 630, 479);
+  //Mat img_bw_crop = img_bw(myROI).clone();
 
   //Display the threshholded image on DMD
-  imshow("dmd", img_bw_crop);
-  waitKey(1000);
+  //imshow("dmd", img_bw_crop);
+  //waitKey(1000);
 
   //Loop over display of camera video.  Not sure why it's necessary for the 'delay'
   //I just coppied this exactly since I really don't understand why it is necessary to
   //Capture and display three times in successsion
-  for (int i = 0; i < 3; i++) {
+  /*for (int i = 0; i < 3; i++) {
     cout << "Display ueye image for second part of affine transformation " << i << endl;
-    frame = (*capture)();
-
+    //frame = (*capture)();
     imshow("ueye", frame);
     waitKey(100);
-  }
+  }*/
 
   getNPoints(3, "ueye", &ps, frame);
   return ps;
@@ -971,9 +1011,9 @@ vector<Point> mtlib::getCorners (cv::Mat frame, string window) {
   getNPoints(12, window, &ps, frame);
   return ps;
 }
-void mtlib::drawCorners (cv::Mat* src, vector<Point> corners) {
-  circle(*src, corners[0], 4, Scalar(100, 0, 0), 1);
-  for (int i = 1; i < corners.size(); i++) {
+void mtlib::drawCorners (cv::Mat* src, vector<Point> corners, int s, int e) {
+  circle(*src, corners[s], 4, Scalar(100, 0, 0), 1);
+  for (int i = s+1; i < e; i++) {
     circle(*src, corners[i], 4, Scalar(0, 100, 0), 2);
   }
 }
@@ -1007,7 +1047,7 @@ double mtlib::getGearRotation(Point top, Point center) {
   return atan2(v.y, v.x)*180/PI;
 }
 double mtlib::getRelRotation(vector<Point> prev_cor, Point prev_cent,
-			     vector<Point> cur_cor, Point cur_cent) {
+                             vector<Point> cur_cor, Point cur_cent) {
   double angle = 0;
   for (int i = 0; i < prev_cor.size(); i++) {
     prev_cor[i] -= prev_cent;
@@ -1040,7 +1080,7 @@ double mtlib::getRelRotation(vector<Point> prev_cor, Point prev_cent,
 
     dst=Point2f(dstMat.at<float>(0,0),dstMat.at<float>(1,0));
     cout << "(1, 0) mapped to (" << dst.x << ", " << dst.y << ") rot = "
-	 << atan2(dst.y, dst.x)*180/PI << endl;
+         << atan2(dst.y, dst.x)*180/PI << endl;
     angle += atan2(dst.y, dst.x)*180/PI;
   }
   return angle/12;
@@ -1096,3 +1136,326 @@ void mtlib::combine(cv::Mat &dst, cv::Mat img1, cv::Mat img2) {
   img2.copyTo(tmp);
 }
 
+/************************
+ GEAR TRACKING FUNCTIONS
+************************/
+
+struct Node {
+  int x;
+  int y;
+  double cost;
+  double heuristic;
+  Node(int x, int y, int c, int h)
+    : x(x), y(y), cost(c), heuristic(h) {};
+};
+
+struct NodeComp {
+  bool operator() (const struct Node& lhs, const struct Node& rhs) const {
+    return lhs.heuristic < rhs.heuristic;
+  }
+};
+
+
+typedef ttmath::Int<TTMATH_BITS(128)> bigInt;
+typedef ttmath::Big<TTMATH_BITS(64), TTMATH_BITS(128)> bigFloat;
+
+Point3i mtlib::fitCircle(vector<Point2i> pts) {
+  bigInt A=0, B=0, C=0, D=0, E=0;
+  bigInt nBig = pts.size();
+  int n = pts.size();
+  bigInt t = 0;
+  bigInt t2 = 0;
+
+  //I know this is a somewhat absurd way of writing this.
+  //There were a lot of terms in the definitions and I wanted
+  //to make sure I got them right
+  for (int i = 0; i < n; i++) {
+    t += pts[i].x*pts[i].x;
+  }
+  A += nBig*t; t=0;
+  for (int i = 0; i < n; i++) {
+    t += pts[i].x;
+  }
+  A -= t*t; t=0;
+
+  for (int i = 0; i < n; i++) {
+    t += pts[i].x*pts[i].y;
+  }
+  B += nBig*t; t=0;
+  for (int i = 0; i < n; i++) {
+    t += pts[i].x;
+    t2 += pts[i].y;
+  }
+  B -= t*t2; t=0;
+
+  for (int i = 0; i < n; i++) {
+    t += pts[i].y*pts[i].y;
+  }
+  C += nBig*t; t=0;
+  for (int i = 0; i < n; i++) {
+    t += pts[i].y;
+  }
+  C -= t*t; t=0; t2=0;
+
+  for (int i = 0; i < n; i++) {
+    t += (pts[i].x)*(pts[i].y)*(pts[i].y);
+    t2 += (pts[i].x)*(pts[i].x)*(pts[i].x);
+  }
+  D += nBig*t + nBig*t2; t=0; t2=0;
+  for (int i = 0; i < n; i++) {
+    t += (pts[i].x);
+    t2 += (pts[i].y)*(pts[i].y);
+  }
+  D -= t*t2; t=0; t2=0;
+  for (int i = 0; i < n; i++) {
+    t += (pts[i].x);
+    t2 += (pts[i].x)*(pts[i].x);
+  }
+  D -= t*t2; t=0; t2=0;
+  D = D/2;
+
+  for (int i = 0; i < n; i++) {
+    t += (pts[i].y)*(pts[i].x)*(pts[i].x);
+    t2 += (pts[i].y)*(pts[i].y)*(pts[i].y);
+  }
+  E += nBig*t + nBig*t2; t=0; t2=0;
+  for (int i = 0; i < n; i++) {
+    t += (pts[i].y);
+    t2 += (pts[i].x)*(pts[i].x);
+  }
+  E -= t*t2; t=0; t2=0;
+  for (int i = 0; i < n; i++) {
+    t += (pts[i].y);
+    t2 += (pts[i].y)*(pts[i].y);
+  }
+  E -= t*t2; t=0; t2=0;
+  E = E/2;
+
+  bigInt a = (D*C-B*E)/(A*C-B*B);
+  bigInt b = (A*E-B*D)/(A*C-B*B);
+  int aint, bint, rint;
+  a.ToInt(aint);
+  b.ToInt(bint);
+
+  bigFloat r = 0;
+  for (int i = 0; i < n; i++) {
+    bigFloat dx = pts[i].x - aint;
+    bigFloat dy = pts[i].y - bint;
+    bigFloat sum_square = dx*dx + dy*dy;
+    sum_square.Sqrt();
+    r = r + sum_square;
+  }
+  bigFloat nfloat;
+  nfloat.FromInt(n);
+  r = r/nfloat;
+
+  rint = r.ToInt();
+
+
+  return Point3i(aint, bint, rint);
+}
+
+vector<Point2i> mtlib::polarToLinear(vector<Point2i> pts, Point2i c, int h) {
+  vector<Point2i> cart;
+  for (int i = 0; i < pts.size(); i++) {
+    double x = pts[i].x*cos((pts[i].y*2*PI)/h);
+    double y = pts[i].x*sin((pts[i].y*2*PI)/h);
+    cart.push_back(Point2i(x, y)+c);
+  }
+  return cart;
+}
+vector<Point2i> mtlib::astar(Mat const& img, double (*cost)(double)) {
+  multiset<Node, NodeComp> frontier;
+  unordered_set<int> visited;
+  unordered_map<int,int> parents;
+  const int minRad = 30;
+  const int maxRad = 300;
+
+  uchar const* p = img.row(0).data;
+  for(int i = 0; i < img.cols; ++i, ++p) {
+    if(*p) {
+      parents.insert(pair<int,int>(i, -1));
+      visited.insert(i);
+      frontier.insert(Node(i, 0, ((double)*p), ((double)*p) + img.rows));
+    }
+  }
+  
+  while(frontier.size()) {
+    struct Node n = *(frontier.begin());
+    if(n.y == img.rows - 1) {
+      vector<Point2i> path;
+      path.push_back(Point2i(n.x,n.y));
+      int prev = parents[n.x + n.y*img.cols];
+      while(prev != -1) {
+        path.push_back(Point2i(prev % img.cols, prev / img.cols));
+        prev = parents[prev];
+      }
+      return path;
+    } else {
+      frontier.erase(frontier.begin());
+      const int parentIndex = n.x + n.y * img.cols;
+
+      // Add neighbors to frontier
+      for(int j = n.y; j < n.y + 2; ++j) {
+        const int rowOffset = j * img.cols;
+        if(j < 0) {}
+        else if(j >= img.rows) break;
+        else {
+          for(int i = n.x - 1; i < n.x + 2; ++i) {
+            if(i < minRad) continue;
+            else if(i >= maxRad) break;
+            else if(i == n.x && j == n.y) continue;
+            else {
+              int pixel = i + rowOffset;
+              if(visited.find(pixel) == visited.end()) {
+                double pixelColor = (double)(img.at<uchar>(j,i));
+                /*if(pixelColor > 200) pixelColor = 10000;
+                  if(pixelColor < 40) pixelColor = 0;
+                  pixelColor = pixelColor * pixelColor * pixelColor;
+                  double horiz = abs(n.x-i);
+                  double childCost = n.cost + pixelColor;
+                  double h = childCost + img.rows-j;
+                  if(pixelColor > 255/2+5) pixelColor = 1000;
+                  if(pixelColor < 30) pixelColor = 1;
+                  pixelColor = pixelColor * pixelColor;
+                  double horiz = abs(n.x-i);*/
+                double childCost = n.cost + cost(pixelColor);
+                double h = childCost + img.rows-j;
+                frontier.insert(Node(i, j, childCost, h));
+                parents.insert(pair<int,int>(pixel, parentIndex));
+                visited.insert(pixel);
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+  cout << "No path found!" << endl;
+  return vector<Point2i>();
+}
+vector<Point2i> mtlib::findMaximums(vector<Point2i> path) {
+  vector<Point2i> maxs;
+  float total_y = 0;
+  for (int i = 0; i < path.size() - 1; i++) {
+    bool strongMax = true;
+    for (int j = -17; j < 17; j++) {
+      if (path[i].x < path[(j+i+path.size())%path.size()].x) strongMax = false;
+    }
+    if (strongMax) {
+      if (maxs.size() > 0) {
+        total_y += (float)(maxs.back().y-path[i].y);
+      }
+      maxs.push_back(path[i]);
+
+      i += 19;
+    }
+  }
+  return maxs;
+}
+vector<Point2i> mtlib::findMinimums(vector<Point2i> path) {
+  vector<Point2i> mins;
+  float total_y = 0;
+  for (int i = 0; i < path.size() - 1; i++) {
+    bool strongMin = true;
+    for (int j = max(0, i-20); j < min((int)(path.size()), i+20); j++) {
+      if (path[i].x > path[j].x) strongMin = false;
+    }
+    if (strongMin) {
+      if (mins.size() > 0) {
+        total_y += (float)(mins.back().y-path[i].y);
+      }
+      mins.push_back(path[i]);
+
+      i += 19;
+    }
+  }
+  return mins;
+}
+
+int mtlib::findPhase(vector<Point2i> path) {
+  int sep = 49;
+  int min_cost = -1;
+  int min_sep = 0;
+  int size = path.size()-1;
+  for (int i = 0; i < sep; i++) {
+    int n = 0;
+    int m = 0;
+    int cost = 0;
+    while (m < path.size()) {
+      int n1_dx = (n*mtlib::SEP+i) - path[size-m].y;
+      int n2_dx = ((n+1)*mtlib::SEP+i) - path[size-m].y;
+      n1_dx *= n1_dx;
+      n2_dx *= n2_dx;
+      if (n1_dx < n2_dx) {
+        cost += n1_dx;
+      } else {
+        n++;
+        cost += n2_dx;
+      }
+      m++;
+    }
+    if (min_cost == -1 || cost < min_cost) {
+      min_cost = cost;
+      min_sep = i;
+    }
+  }
+  return min_sep;
+}
+void mtlib::rowSum(cv::Mat src, cv::Mat dst, int thresh) {
+  Mat tmp(src.rows, src.cols, CV_32SC1);
+  int max = -1;
+  for (int r = 0; r < dst.rows; r++) {
+    for (int c = 0; c < dst.cols; c++) {
+      if (src.at<uchar>(r, c) > thresh) {
+        tmp.at<int>(r, c) = 1;
+      } else {
+        tmp.at<int>(r, c) = -1;
+      }
+      if (c > 0) {
+        tmp.at<int>(r,c) += tmp.at<int>(r,c-1);
+      }
+      if (max == -1 || tmp.at<int>(r, c) > max) {
+        max = tmp.at<int>(r, c);
+      }
+    }
+  }
+  for (int r = 0; r < tmp.rows; r++) {
+    for (int c = 0; c < dst.cols; c++) {
+      if (tmp.at<int>(r, c) < 0) {
+        tmp.at<int>(r, c) = 0;
+      }
+      dst.at<uchar>(r, c) = 255 - (int)((((float)tmp.at<int>(r, c))/max)*255);
+    }
+  }
+}
+void mtlib::rowGrad(cv::Mat src, cv::Mat dst) {
+
+  for (int r = 0; r < dst.rows; r++) {
+    for (int c = 2; c < dst.cols-2; c++) {
+      int left = (src.at<uchar>(r, c-2) + src.at<uchar>(r, c-1))/2;
+      int right = (src.at<uchar>(r, c+2) + src.at<uchar>(r, c+1))/2;
+      dst.at<uchar>(r, c) = 255/2 + 10*(right-left);
+    }
+  }
+  for (int r = 0; r < dst.rows; r++) {
+    dst.at<uchar>(r, 0) = 255;
+    dst.at<uchar>(r, 1) = 255;
+    dst.at<uchar>(r, dst.cols-2) = 255;
+    dst.at<uchar>(r, dst.cols-1) = 255;
+  }
+}
+
+
+void mtlib::setPolarEdges(cv::Mat polar, Point cent) {
+  for (int r = 0; r < polar.rows; r++) {
+    for (int c = 0; c < polar.cols; c++) {
+      double angle = ((double)2*PI*r)/polar.rows;
+      int x = c*cos(angle)+cent.x;
+      int y = c*sin(angle)+cent.y;
+      if (x > polar.cols-2 || y > polar.rows-2 || x < 2|| y < 2) { 
+        polar.at<uchar>(r, c) = 255;
+      }
+    }
+  }
+}

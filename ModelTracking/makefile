@@ -33,13 +33,16 @@ Threshhold: Threshhold.cpp mtlib.o
 mbr_tracker: mbr_tracker.cpp mtlib.o firefly.o
 	${CC} ${LDFLAGS} mbr_tracker.cpp mtlib.o firefly.o -o mbr_tracker
 
+gear_tracker: gear_tracker.cpp mtlib.o
+	${CC} ${LDFLAGS} gear_tracker.cpp mtlib.o  -o gear_tracker
+
 all:
 	make ModelsTest
-	make ShrinkTest
 	make AffineTest
 	make GearTracking
 	make Threshhold
 	make mbr_tracker
+	make gear_tracker
 clean:
 	rm *.o
 	rm ModelsTest
@@ -48,3 +51,4 @@ clean:
 	rm GearTracking
 	rm Threshholdb
 	rm mbr_tracker
+	rm gear_tracker

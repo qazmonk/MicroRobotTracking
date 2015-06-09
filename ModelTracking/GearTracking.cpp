@@ -90,7 +90,7 @@ int main(int argc, char* argv[]) {
   vector<vector< Point > > corners;
   for (int i = 0; i < video.size(); i++) {
     Mat dst = video[i].clone();
-    if (i > 0) drawCorners(&dst, prev_corners);
+    if (i > 0) drawCorners(&dst, prev_corners, 0, prev_corners.size());
     cur_corners = getCorners(dst, window);
     cur_cent = getGearCenter(cur_corners);
     double abs_rot = getGearRotation(cur_corners[0], cur_cent);
