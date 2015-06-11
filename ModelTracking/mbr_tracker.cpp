@@ -8,14 +8,14 @@
 #include "mtlib.h"
 #include <algorithm>
 #include <time.h>
-
+#include "firefly.h" 
 using namespace std;
 using namespace cv;
 using namespace mtlib;
 
 
 vector<Mat> video;
-int fps, ex;
+int fps = 15, ex;
 Size S;
 int time_idx = 0, minArea = -1, maxArea = -1;
 Mat current_frame, toggle_on, toggle_off, current_cont_frame;
@@ -25,19 +25,33 @@ bool outputting = false;
 vector<Model> models;
 vector<bool> selected, exposing;
 Size frame_size;
+firefly_t * f;
+firefly_camera_t * camera;
+vector<Mat> output;
 
-int capture(Mat * dst) {
+int capture_from_video(Mat * dst) {
   usleep(250000);
   time_idx++;
   if (time_idx > video.size()) {
-    return 1;
+    return -1;
   }
   cout << "captured " << (time_idx - 1) << endl;
   *dst = video[time_idx-1];
   return 0;
 }
-
-int (*cap)(Mat * dst) = *capture;
+int capture_from_camera(Mat * dst) {
+  firefly_frame_t frame = firefly_capture_frame(camera);
+  if (frame.err < 0) {
+    return -1;
+  }
+  if (frame.frames_behind > 0) {
+    firefly_flush_camera(camera);
+    return capture_from_camera(dst);
+  }
+  *dst = frame.img;
+  return 0;
+}
+int (*cap)(Mat * dst) = *capture_from_video;
 
 void* capture_input(void*) {
   capturing = true;
@@ -91,7 +105,6 @@ void selectExposuresCallback(int event, int x, int y, int, void*) {
       exposing[min] = exposing_copy[min];
       pthread_mutex_unlock(&cont_frame_mutex);
     }
-
     for (int n = 0; n < models_copy.size(); n++) {
       Scalar color(0, 0, 255);
       if (exposing_copy[n]) {
@@ -165,35 +178,78 @@ void* process_input(void*) {
         process_output();
       }
       pthread_mutex_unlock(&models_mutex);
+      output.push_back(frame);
     }
   }
 }
 
 int main(int argc, char* argv[]) {
-  captureVideo(argv[1], &video, &fps, &S, &ex);
 
+  bool using_camera = false, writing = false, input_given = false;;
+  char * output_file;
+  
   for (int i = 0; i < argc; i++) {
     if (strncmp(argv[i], "--bounds", 10) == 0) {
       minArea = stoi(argv[i+1]);
       maxArea = stoi(argv[i+2]);
       i+=2;
+    } else if (strncmp(argv[i], "--camera", 10) == 0) {
+      using_camera = true;
+      cap = *capture_from_camera;
+      f = firefly_new();
+      firefly_setup_camera(f, &camera);
+      input_given = true;
+    } else if (strncmp(argv[i], "--write", 10) == 0) {
+      writing = true;
+      output_file = argv[i+1];
+      i++;
+    } else if (strncmp(argv[i], "--file", 10) == 0) {
+      using_camera = false;
+      input_given = true;
+      captureVideo(argv[i+1], &video, &fps, &S, &ex);      
+      i++;
     }
   }
+  if (!input_given) {
+    cout << "Must specify input using '--file' or '--camera'" << endl;
+    return 0;
+  }
   Mat frame0;
-  capture(&frame0);
-  current_frame = frame0;
-  frame_size = frame0.size();
   new_frame = true;
   outputting = false;
-  //vector<Point> pts = getAffineTransformPoints(frame0, *capture, 640, 480, 650, 10);
+   
+  
+  cap(&frame0);
+  current_frame = frame0;
+  frame_size = frame0.size();
+     //vector<Point> pts = getAffineTransformPoints(frame0, *capture, 640, 480, 650, 10);
   if (minArea < 0 || maxArea < 0 || minArea > maxArea) {
     Point minMax = getMinAndMaxAreas(frame0);
     minArea = minMax.x;
     maxArea = minMax.y;
   }
-  Mat frame1;
-  capture(&frame1);
-  generateModels(frame1, &models, minArea, maxArea);
+
+  while (true) {
+    generateModels(frame0, &models, minArea, maxArea);
+    Mat tmp = Mat::zeros(frame0.size(), frame0.type());
+    for (int i = 0; i < models.size(); i++) {
+      models[i].drawContour(tmp, 0);
+      models[i].drawBoundingBox(tmp, 0, Scalar(255, 0, 0));
+    }
+    namedWindow("Models", CV_WINDOW_AUTOSIZE);
+    imshow("Models", tmp);
+    cout << "Would you like to use a different image for model selection? (y/n)" << endl;
+    char ans;
+    cin >> ans;
+    if (ans == 'y' || ans == 'Y') { 
+      cout << "Restarting model generation" << endl;
+      cap(&frame0);
+    } else {
+      destroyWindow("Models");
+      break;
+    }
+    destroyWindow("Models");
+  }
   pthread_t cap_thread, proc_thread;
   namedWindow("Output", CV_WINDOW_AUTOSIZE);
   namedWindow("Tracking", CV_WINDOW_AUTOSIZE);
@@ -211,6 +267,10 @@ int main(int argc, char* argv[]) {
   for (int i = 0; i < selected_ids.size(); i++) {
     selected_models.push_back(models_copy[selected_ids[i]]);
     selectidx_to_modelsidx.push_back(selected_ids[i]);
+  }
+  if (selected_ids.size() < 1) {
+    cout << "No models selected. Exiting." << endl;
+    return 0;
   }
   cout << "selecting masks" << endl;
   cout << selected_models.size() << endl;;
@@ -249,7 +309,14 @@ int main(int argc, char* argv[]) {
     printf("ERROR: return code from cap_thread is %d\n", rc);
     exit(-1);
   }
- 
+  if (writing) {
+    cout << "Writing video" << endl;
+    
+    bool succ = writeVideo(output_file, output, fps);
+    if (!succ) {
+      cout << "Error writing video" << endl;
+    }
+  }
   cout << "Input finished...exiting" << endl;
   return 0;
 }

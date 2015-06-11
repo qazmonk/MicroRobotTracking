@@ -38,7 +38,7 @@ Mat cartToPolar(Mat polar, Point2i center) {
 }
 Mat light_on_filter(Mat frame, Point2i c) {
   Mat gray;
-  cvtColor(frame, gray, CV_RGB2GRAY);
+  cvtColor(frame, gray, CV_BGR2GRAY);
   
   Mat trans = Mat(gray.rows, gray.cols, CV_8UC1, 255);
   Mat trans2 = Mat::zeros(trans.rows, trans.cols, CV_8UC1);
@@ -134,7 +134,7 @@ int main(int argc, char* argv[]) {
     path = astar(fst_filtered, light_on_cost);
   } else {
     Mat gray;
-    cvtColor(fst_polar, gray, CV_RGB2GRAY);
+    cvtColor(fst_polar, gray, CV_BGR2GRAY);
     fst_filtered = gray;
     path = astar(fst_filtered, light_off_cost);
   }
@@ -161,7 +161,7 @@ int main(int argc, char* argv[]) {
       filtered = light_on_filter(polar, c);
     } else {
       Mat gray;
-      cvtColor(polar, gray, CV_RGB2GRAY);
+      cvtColor(polar, gray, CV_BGR2GRAY);
       filtered = gray;
     }
     /*********************
@@ -235,13 +235,13 @@ int main(int argc, char* argv[]) {
     cv::circle(cart, Point(circle.x, circle.y), 2, Scalar(0, 255, 0), 2);
     //do output stuff
     Mat comb;
-    combine(comb, polar, cart);
+    combineHorizontal(comb, polar, cart);
     out.push_back(comb);
     //cout << "done " << i << "/" << video.size() << endl;
     cout << c.x << " " << c.y << " " << getGearRotation(cart_best_fit_maxs[top], c) << endl;
     lastPhase = phase;
   }
-  if (write) writeVideo(output_folder, out);
+  if (write) writeVideo(output_folder, out, fps);
   createTrackbar("Scrubbing", "Polar", &pos, out.size()-1, scrub);
   scrub(0, 0);
   waitKey(0);

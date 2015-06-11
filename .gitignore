@@ -1,4 +1,6 @@
 video*
 data.txt
 *.o
-ModelsTest
+*.avi
+*.mov
+*.mp4

@@ -19,8 +19,8 @@
 using namespace cv;
 using namespace std;
 
-int DEF_CHANNEL = 2;
-int CONT_THICKNESS = 3;
+int DEF_CHANNEL = 0;
+int CONT_THICKNESS = 4;
 int MAX_DEV = 22;
 bool mtlib::captureVideo(char* src, vector<Mat> * dst, int* fps, Size* s, int* ex) 
 {
@@ -51,24 +51,19 @@ bool mtlib::captureVideo(char* src, vector<Mat> * dst, int* fps, Size* s, int* e
   }
   return true;
 }
-bool mtlib::writeVideo(const char* name, std::vector<cv::Mat> frames) {
+bool mtlib::writeVideo(const char* name, std::vector<cv::Mat> frames, int fps) {
 
-  char clean[50];
-  sprintf(clean, "./%s/clean.sh", name);
-  if (access( clean, F_OK ) != -1) {
-    cout << "cleaning directory..." << endl;
-    sprintf(clean, "%s %s", clean, name);
-    system(clean);
-
+  cv::VideoWriter output_cap(name, 
+                             CV_FOURCC('m', 'p', '4', 'v'),
+                             fps,
+                             frames[0].size());
+  if (!output_cap.isOpened()) {
+    return false;
   }
-  cout << "writing frames" << endl;
   for (int i = 0; i < frames.size(); i++) {
-    char fileName[50];
-    cout << "writing frame " << i + 1 << " of " << frames.size() << endl;
-    frames[i].convertTo(frames[i], CV_8UC3);
-    sprintf(fileName, "./%s/frame_%04d.jpeg", name, i);
-    imwrite(fileName, frames[i]);
+    output_cap.write(frames[i]);
   }
+  output_cap.release();
   return true;
 }
 
@@ -320,9 +315,8 @@ void mtlib::selectMasks(Mat frame, vector<Model> * models) {
   minArea *= 0.9;
   maxArea *= 1.1;
   vector< vector<Point> > contours;
-  vector< Vec4i > hierarchy;
-  filterAndFindContours(frame, &contours, &hierarchy);
-  drawContoursAndFilter(dst, &contours, &hierarchy, minArea, maxArea);  
+  filterAndFindContours(frame, &contours);
+  drawContoursAndFilter(dst, &contours, minArea, maxArea);  
   for (int n = 0; n < models->size(); n++) {
     Point2f verticies[4];
     models->at(n).getBoundingBox(0).points(verticies);
@@ -362,13 +356,10 @@ void mtlib::filterAndFindContoursElizabeth(Mat frame, vector< vector<Point> > * 
   findContours(t2, *contours, *hierarchy, CV_RETR_LIST, CV_CHAIN_APPROX_SIMPLE);
 }
 
-Mat mtlib::filter(Mat frame) {
-  Mat dst;
-  Canny(frame, dst, 50, 100, 3);
-  return dst;
-}
+
 void mtlib::filterAndFindLines(Mat frame, vector<Vec2f> * lines) {
-  Mat dst = filter(frame);
+  Mat dst;
+  filter(dst, frame);
   HoughLines(dst, *lines, 1, CV_PI/180, 70, 0, 0);
 }
 void mtlib::drawLines(Mat dst, vector<Vec2f> * lines) {
@@ -385,52 +376,88 @@ void mtlib::drawLines(Mat dst, vector<Vec2f> * lines) {
     line( dst, pt1, pt2, Scalar(255,255,0), 1, CV_AA);
   }
 }
-void mtlib::filterAndFindContours(Mat frame, vector< vector<Point> > * contours, 
-                                  vector<Vec4i> * hierarchy, Point off)
-{
-  Mat t = Mat::zeros(frame.size(), CV_8UC1);
+const bool DEBUG_FILTER = false;
+void mtlib::filter(Mat& dst, Mat frame) {
+  int lowThreshold = 75;
+  int ratio = 3;
+  dst.create(frame.rows, frame.cols, CV_8UC1);
   if (DEF_CHANNEL >= 0 && DEF_CHANNEL < 3) {
+    namedWindow("test", CV_WINDOW_AUTOSIZE);
     vector<Mat> rgb;
     split(frame, rgb);
-    adaptiveThreshold(rgb[DEF_CHANNEL], t, 255, ADAPTIVE_THRESH_MEAN_C, THRESH_BINARY, 27, 5);
+    rgb[DEF_CHANNEL].setTo(0);
+    if (DEBUG_FILTER) {
+      imshow("test", frame);
+      waitKey(0);
+    }
+    merge(rgb, frame);
+    if (DEBUG_FILTER) {
+      imshow("test", frame);
+      waitKey(0);
+    }
+    Mat gray;
+    cvtColor(frame, gray, CV_BGR2GRAY);
+    if (DEBUG_FILTER) {
+      imshow("test", gray);
+      waitKey(0);
+    }
+    //blur(gray, gray, Size(3, 3));
+    adaptiveThreshold(gray, dst, 255, ADAPTIVE_THRESH_MEAN_C, THRESH_BINARY, 27, 5);
+    if (DEBUG_FILTER) {
+      imshow("test", dst);
+      waitKey(0);
+    }
+    //GaussianBlur(dst, dst, Size(7, 7), 0, 0);
+    Mat element = getStructuringElement(MORPH_ELLIPSE, Size(3, 3));
+    erode(dst, dst, element);
+    //blur(dst, dst, Size(7, 7));
+    threshold(dst, dst, 40, 255, THRESH_BINARY);
   } else {
+    cout << "WARNING: using an defuct def_channel" << endl;
     Mat t1, t2;
-    cvtColor(frame, t1, CV_RGB2GRAY);
-    adaptiveThreshold(t1, t, 255, ADAPTIVE_THRESH_MEAN_C, THRESH_BINARY, 27, 5);
+    cvtColor(frame, t1, CV_BGR2GRAY);
+    Canny(t1, t1, lowThreshold, lowThreshold*ratio, 5);
+    adaptiveThreshold(t1, dst, 255, ADAPTIVE_THRESH_MEAN_C, THRESH_BINARY, 27, 5);
     //blur(t2, t, Size(5, 5));
   }
-  findContours(t, *contours, *hierarchy, CV_RETR_LIST, CV_CHAIN_APPROX_NONE, off);
 }
-
+void mtlib::filterAndFindContours(Mat frame, vector< vector<Point> > * contours, 
+                                  Point off)
+{
+  Mat t;
+  filter(t, frame);
+  vector<Vec4i> h;
+  findContours(t, *contours, h, CV_RETR_LIST, CV_CHAIN_APPROX_NONE, off);
+}
+void mtlib::drawModels(Mat dst, vector<mtlib::Model> models, int t) {
+  for (int i = 0; i < models.size(); i++) {
+    models[i].drawContour(dst, t);
+  }
+}
 void mtlib::drawContoursFast(Mat dst, vector< vector<Point> > * contours, 
-                             vector<Vec4i> * hierarchy, int minArea, int maxArea)
+                             int minArea, int maxArea)
 {
   //loop through contours filtering out ones that are too small or too big
   for (int i = 0; i < contours->size(); i++) {
     double consize = contourArea(contours->at(i));
     if (consize >= minArea && consize <= maxArea) {
-      //drawContours(contour_drawing, *contours, i, color, 2, 8, *hierarchy, 0, Point());
       vector<Point> contour = contours->at(i);
       for (int j = 0; j < contour.size(); j++) {
-        dst.at<Vec3b>(contour[j]) = Vec3b(255, 255, 255);
+        circle(dst, contour[j], CONT_THICKNESS/2, Scalar(255, 255, 255));
       }
     }
   }
  
 }
 void mtlib::drawContoursAndFilter(Mat dst, vector< vector<Point> > * contours, 
-                                  vector<Vec4i> * hierarchy, int minArea, int maxArea)
+                                  int minArea, int maxArea)
 {
-
   Mat contour_drawing = Mat::zeros(dst.size(), dst.type());
   Scalar color = Scalar(255, 255, 0);
-
-
   //loop through contours filtering out ones that are too small or too big
   for (int i = 0; i < contours->size(); i++) {
     double consize = contourArea(contours->at(i));
     if (consize >= minArea && consize <= maxArea) {
-      //drawContours(contour_drawing, *contours, i, color, 2, 8, *hierarchy, 0, Point());
       vector<Point> contour = contours->at(i);
       for (int j = 0; j < contour.size(); j++) {
         circle(contour_drawing, contour[j], 1, Scalar(255, 255, 255));
@@ -622,12 +649,9 @@ bool compare_model(mtlib::Model m1, mtlib::Model m2) { return m1.getArea() > m2.
 
 void mtlib::generateModels(Mat frame, vector<Model> * models, int minArea, int maxArea) {
   vector< vector<Point> > contours;
-  vector<Vec4i> hierarchy;
   //do all contour finding, drawing and filtering
-
-  filterAndFindContours(frame, &contours, &hierarchy);
+  filterAndFindContours(frame, &contours);
   //go through contours looking for acceptable matches
-
   for (int i = 0; i < contours.size(); i++) {
     double consize = contourArea(contours[i]);
     if (consize > minArea && consize < maxArea) {
@@ -653,26 +677,20 @@ void mtlib::updateModels(Mat frame, vector<Model> * models, int minArea, int max
   //namedWindow("Searching", CV_WINDOW_AUTOSIZE);
   
   for (int i = 0; i < models->size(); i++) {
-    cout << "searching for model " << i << endl;
     //Get part of image in search area
     Rect searchArea = models->at(i).getSearchArea(frame);
     Mat roi(frame.clone(), searchArea);
     //do contour finding and filtering
     vector< vector<Point> > contours;
-    vector<Vec4i> hierarchy;
-    cout << "finding contours" << endl;
-    filterAndFindContours(roi, &contours, &hierarchy, searchArea.tl());
+    filterAndFindContours(roi, &contours, searchArea.tl());
     /*Mat roi_cont = Mat::zeros(roi.size(), CV_8UC1);
       drawContoursAndFilter(roi_cont, &contours, &hierarchy, minArea, maxArea);*/
     //imshow("Searching", roi_cont);
     //serach contours for the object
-    cout << "searching contours for model" << endl;
     if (contours.size() > 0) {
-      cout << "found some contours" << endl;
       int bestCont = 0, area_diff = abs(contourArea(contours[0]) - models->at(i).getArea());
       bool foundObject = false;
       for (int n = 0; n < contours.size(); n++) {
-        cout << contours[n].size() << endl;
         double consize = contourArea(contours[n]);
         double consize_diff = abs(consize - models->at(i).getArea());
         if (consize > minArea && consize < maxArea && consize_diff <= area_diff) {
@@ -682,6 +700,8 @@ void mtlib::updateModels(Mat frame, vector<Model> * models, int minArea, int max
           area_diff = consize_diff;
         }
       }
+      double err = ((double)area_diff)/models->at(i).getArea();
+      if (err > 0.3) foundObject = false;
       cout << "Found object: " << std::boolalpha << foundObject << endl;
       //if the object was found generate new center and orientation data
       //othrewise assume it hasn't moved
@@ -690,7 +710,7 @@ void mtlib::updateModels(Mat frame, vector<Model> * models, int minArea, int max
       vector<double> r;
       vector<Point> cont;
       if (foundObject) {
-        cout << "area_diff = " << area_diff << endl;
+        cout << "err = " << err << endl;
         c = getCenter(contours[bestCont]);
         r = getRotSignal(contours[bestCont], c);
         //showHist("Histogram", sig);
@@ -734,7 +754,6 @@ namespace trackbarVars {
   const int step = 500;
   const int maxVal = 50000;
   vector < vector<Point> > contours;
-  vector<Vec4i> hierarchy;
   Mat disp;
   const int num_steps = maxVal/step;
   Mat cache[num_steps][num_steps];
@@ -754,7 +773,7 @@ void applyFilter(int, void*) {
     cout << "Filling cache" << endl;
     trackbarVars::cache[idx1][idx2] = Mat::zeros(trackbarVars::frame.size(), CV_8UC3);
     mtlib::drawContoursFast(trackbarVars::cache[idx1][idx2], &trackbarVars::contours, 
-                            &trackbarVars::hierarchy, trackbarVars::min, trackbarVars::max);
+                            trackbarVars::min, trackbarVars::max);
     trackbarVars::cache_filled[idx1][idx2] = true;
   }
   imshow("Frame", trackbarVars::cache[idx1][idx2]);      
@@ -770,8 +789,7 @@ Point mtlib::getMinAndMaxAreas(Mat frame) {
   namedWindow("Frame", CV_WINDOW_AUTOSIZE);
   trackbarVars::frame = frame;
   trackbarVars::disp = Mat::zeros(trackbarVars::frame.size(), CV_8UC1);
-  mtlib::filterAndFindContours(trackbarVars::frame, &trackbarVars::contours, 
-                               &trackbarVars::hierarchy);
+  mtlib::filterAndFindContours(trackbarVars::frame, &trackbarVars::contours);
   int steps = trackbarVars::num_steps;
   for (int i = 0; i < steps; i++) {
     for (int j = 0; j < steps; j++) {
@@ -869,10 +887,9 @@ vector<int> mtlib::selectObjects(Mat frame, vector<Model> * models) {
   minArea *= 0.9;
   maxArea *= 1.1;
   vector< vector<Point> > contours;
-  vector< Vec4i > hierarchy;
-  filterAndFindContours(frame, &contours, &hierarchy);
+  filterAndFindContours(frame, &contours);
   cout << contours.size() << " " << minArea << " " << maxArea << endl;
-  drawContoursAndFilter(dst, &contours, &hierarchy, minArea, maxArea);  
+  drawModels(dst, *models, 0);  
   selectROIVars::contours = dst.clone();
   for (int n = 0; n < models->size(); n++) {
     Point2f verticies[4];
@@ -941,35 +958,38 @@ vector<Point> mtlib::getAffineTransformPoints(Mat frame, Mat (*capture)(),
   Mat white;//(608, 648, CV_8UC1, 255);
   Mat img_bw;//(frame.rows, frame.cols, CV_8UC1, 255);
   Mat gray_img;//(frame.rows, frame.cols, CV_8UC1, 255);
+  Mat black = Mat::zeros(Size(w, h), frame.type());
+
+  namedWindow("Calibration Input", CV_WINDOW_AUTOSIZE);
+  namedWindow("DMD", CV_WINDOW_NORMAL);
+
   
-  namedWindow("ueye", CV_WINDOW_AUTOSIZE);
-  namedWindow("dmd", CV_WINDOW_NORMAL);
+  //cvMoveWindow("DMD", 1275, -32);
+  //cvResizeWindow("DMD", 608, 684);
+  cvMoveWindow("DMD", x, y);
+  cvResizeWindow("DMD", w, h);
+  imshow("DMD", black);
 
   //Display frame
-  imshow("ueye", frame);
-  
-  //cvMoveWindow("dmd", 1275, -32);
-  //cvResizeWindow("dmd", 608, 684);
-  cvMoveWindow("dmd", x, y);
-  cvResizeWindow("dmd", w, h);
+  imshow("Calibration Input", frame);
   
   // Collect three source points for affine transformation.
-  getNPoints(3, "ueye", &ps, frame);
+  getNPoints(3, "Calibration Input", &ps, frame);
 
   //Save the image as a gray image and threshold it
   cvtColor(frame, gray_img, CV_BGR2GRAY);
   adaptiveThreshold(gray_img, img_bw, 255, ADAPTIVE_THRESH_MEAN_C, THRESH_BINARY, 27, 5);
 
-  /*//show an all white image on the dmd
-  imshow("dmd", white);
+  /*//show an all white image on the DMD
+  imshow("DMD", white);
   waitKey(300); */
-  //show thresholded image on dmd
-  imshow("dmd", img_bw);
+  //show thresholded image on DMD
+  imshow("DMD", img_bw);
   waitKey(300);
 
   //cature another frame and display it
   frame = (*capture)();
-  imshow("ueye", frame);
+  imshow("Calibration Input", frame);
   waitKey(30);
 
   //I got rid of this since the new set up probably won't have the same quirks as the last one
@@ -987,20 +1007,20 @@ vector<Point> mtlib::getAffineTransformPoints(Mat frame, Mat (*capture)(),
   //Mat img_bw_crop = img_bw(myROI).clone();
 
   //Display the threshholded image on DMD
-  //imshow("dmd", img_bw_crop);
+  //imshow("DMD", img_bw_crop);
   //waitKey(1000);
 
   //Loop over display of camera video.  Not sure why it's necessary for the 'delay'
   //I just coppied this exactly since I really don't understand why it is necessary to
   //Capture and display three times in successsion
   /*for (int i = 0; i < 3; i++) {
-    cout << "Display ueye image for second part of affine transformation " << i << endl;
+    cout << "Display Calibration Input image for second part of affine transformation " << i << endl;
     //frame = (*capture)();
-    imshow("ueye", frame);
+    imshow("Calibration Input", frame);
     waitKey(100);
   }*/
 
-  getNPoints(3, "ueye", &ps, frame);
+  getNPoints(3, "Calibration Input", &ps, frame);
   return ps;
 }
 
@@ -1124,7 +1144,7 @@ void mtlib::showHist(const char * window, vector<double> hist, int off) {
   
 }
 
-void mtlib::combine(cv::Mat &dst, cv::Mat img1, cv::Mat img2) {
+void mtlib::combineHorizontal(cv::Mat &dst, cv::Mat img1, cv::Mat img2) {
   int rows = max(img1.rows, img2.rows);
   int cols = img1.cols+img2.cols;
   
@@ -1133,6 +1153,17 @@ void mtlib::combine(cv::Mat &dst, cv::Mat img1, cv::Mat img2) {
   cv::Mat tmp = dst(cv::Rect(0, 0, img1.cols, img1.rows));
   img1.copyTo(tmp);
   tmp = dst(cv::Rect(img1.cols, 0, img2.cols, img2.rows));
+  img2.copyTo(tmp);
+}
+void mtlib::combineVertical(cv::Mat &dst, cv::Mat img1, cv::Mat img2) {
+  int rows = img1.rows + img2.rows;
+  int cols = max(img1.cols,img2.cols);
+  
+  dst.create(rows, cols, img1.type());
+  dst.setTo(Scalar(0, 0, 0));
+  cv::Mat tmp = dst(cv::Rect(0, 0, img1.cols, img1.rows));
+  img1.copyTo(tmp);
+  tmp = dst(cv::Rect(0, img1.rows, img2.cols, img2.rows));
   img2.copyTo(tmp);
 }
 

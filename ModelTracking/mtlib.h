@@ -91,13 +91,10 @@ namespace mtlib {
   bool captureVideo(char* path, std::vector<cv::Mat>*, int* fps, cv::Size * s, int* ex);
 
 
-  //Writes frames out as a sequence of images with the name frame_%0d.jpeg
-  //to the given directory.
-  //returns true if the video was written sucessfully
-  bool writeVideo(const char* filename, std::vector<cv::Mat> frames);
+  //Writes a .mov video to the specified filename consisting of the given frames
+  //at the given fps
+  bool writeVideo(const char* filename, std::vector<cv::Mat> frames, int);
 
-  //Applies a set of filters for making tracking easier
-  cv::Mat filter(cv::Mat src);
 
   //Applies some filters and then finds the lines in it using the HoughLine
   //opencv function
@@ -105,26 +102,28 @@ namespace mtlib {
   
   //compaining to filterAndFindLines. Draws the lines returned by that function
   void drawLines(cv::Mat, std::vector<cv::Vec2f> *);
+  //Applies just the filter for filter and find contours
+  void filter(cv::Mat&, cv::Mat);
   //Applies several filters to an image before finding the contours and storing the results
   //in contours and hierarchy. A channel can optionally be supplied to apply the filters to
   //a channel other than 2
   void filterAndFindContours(cv::Mat src, std::vector< std::vector<cv::Point> > * contours,
-			     std::vector<cv::Vec4i> * hierarchy, 
                              cv::Point off=cv::Point(0, 0));
-
   //Does the same thing as above but with different filters for Elizabeth's videos
   void filterAndFindContoursElizabeth(cv::Mat src,
                                       std::vector< std::vector<cv::Point> > * contours,
                                       std::vector<cv::Vec4i> * hierarchy);
 
+  //Draws just the contours of every model at the given time
+  void drawModels(cv::Mat, std::vector<Model>, int);
   //Draws the contours with areas in the given range onto the dst quickly
   //does not apply filters
   void drawContoursFast(cv::Mat dst, std::vector< std::vector<cv::Point> > * contours,
-			     std::vector<cv::Vec4i> * hierarchy, int minArea, int maxArea);
+                        int minArea, int maxArea);
   //Draws the contours with areas in the given range onto the dst and then
   //applies some filters
   void drawContoursAndFilter(cv::Mat dst, std::vector< std::vector<cv::Point> > * contours,
-			     std::vector<cv::Vec4i> * hierarchy, int minArea, int maxArea);
+                             int minArea, int maxArea);
 
   //Uses moments of the contours to find the center of the given contour
   cv::Point getCenter(std::vector<cv::Point> contour);
@@ -190,8 +189,8 @@ namespace mtlib {
   void showHist(const char *, std::vector<double>, int off=0);
   
 
-  void combine(cv::Mat&, cv::Mat, cv::Mat);
-
+  void combineHorizontal(cv::Mat&, cv::Mat, cv::Mat);
+  void combineVertical(cv::Mat&, cv::Mat, cv::Mat);
   /******************
    * GEAR TRACKING
    *****************/

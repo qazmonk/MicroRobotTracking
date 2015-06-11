@@ -11,6 +11,7 @@ typedef struct
 {
   cv::Mat img;
   int frames_behind;
+  firefly_error_t err;
 } firefly_frame_t;
 
 firefly_t * firefly_new();

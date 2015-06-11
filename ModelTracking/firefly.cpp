@@ -116,12 +116,13 @@ firefly_frame_t firefly_capture_frame(firefly_camera_t * camera) {
   //Convert to RGB from raw format
   cv::Mat bayer_img(frame->size[1], frame->size[0], CV_8UC1, frame->image, frame->stride);
   cv::Mat img(frame->size[1], frame->size[0], CV_8UC3);
-  cv::cvtColor(bayer_img, img, CV_BayerRG2RGB);
+  cv::cvtColor(bayer_img, img, CV_BayerRG2BGR);
   
   dc1394_capture_enqueue(camera, frame);
   firefly_frame_t f;
   f.img = img;
   f.frames_behind = frame->frames_behind;
+  f.err = err;
   return f;
 }
 
