@@ -24,6 +24,7 @@ vector<Model> models;
 void scrub(int, void*);
 
 int main(int argc, char* argv[]) {
+  Model::init();
   cout << "reading file..." << endl;
   captureVideo(argv[1], &video, &fps, &S, &ex);
   cout << "done" << endl;
@@ -117,7 +118,9 @@ int main(int argc, char* argv[]) {
 
     
     Mat dst_fin0, dst_fin1, filtered;
-    combineHorizontal(dst_fin0, dst, video[i]);
+    Mat frame_copy = video[i].clone();
+    drawModels(frame_copy, models, -1);
+    combineHorizontal(dst_fin0, dst, frame_copy);
     filter(filtered, video[i]);
     Mat filtered_color;
     cvtColor(filtered, filtered_color, CV_GRAY2RGB);

@@ -1,0 +1,3 @@
+Using camera with GUID b09d0100802ccd
+Maximumg size 752x480
+Would you like to use the previously saved transformation? (y/n) 

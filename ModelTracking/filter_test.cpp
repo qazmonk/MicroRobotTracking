@@ -8,6 +8,7 @@
 #include "mtlib.h"
 #include <algorithm>
 #include <time.h>
+#include "firefly.h"
 
 using namespace std;
 using namespace cv;
@@ -20,15 +21,31 @@ Size S;
 string window = "Output";
 int skip = 1;
 vector<Model> models;
+firefly_t * f;
+firefly_camera_t * camera;
+
 
 void scrub(int, void*);
 
+int cap(Mat * dst) {
+  int rc = opencv_firefly_capture(camera, dst);
+  bitwise_not(*dst, *dst);
+  return rc;
+}
 int main(int argc, char* argv[]) {
   cout << "reading file..." << flush;
   captureVideo(argv[1], &video, &fps, &S, &ex);
   cout << "done" << endl;
+  cout << ex << endl;
+  cout << CV_FOURCC('m', 'p', '4', 'v') << endl;
   int minArea = -1, maxArea = -1;
   int startFrame = 0;
+  int  dmd_x = 39, dmd_y = 1400;
+  int dmd_w = 608;
+  int dmd_h = 662;
+  f = firefly_new();
+  firefly_setup_camera(f, &camera);
+  firefly_start_transmission(camera);
   for (int i = 0; i < argc; i++) {
     if (strncmp(argv[i], "-c", 2) == 0) {
       mtlib::setDefaultChannel(stoi(argv[i+1]));
@@ -40,8 +57,19 @@ int main(int argc, char* argv[]) {
     } else if (strncmp(argv[i], "-s", 5) == 0) {
       startFrame = stoi(argv[i+1]);
       i++;
-    }
+    } else if (strncmp(argv[i], "--affine-args", 15) == 0) {
+      dmd_w = stoi(argv[i+1]);
+      dmd_h = stoi(argv[i+2]);
+      dmd_x = stoi(argv[i+3]);
+      dmd_y = stoi(argv[i+4]);
+      i += 4;
+    } 
   }
+  namedWindow("DMD", CV_WINDOW_NORMAL);
+  cvMoveWindow("DMD", dmd_x, dmd_y);
+  cout << "calibrating..." << flush;
+  autoCalibrate(cap, "DMD", Size(dmd_w, dmd_h));
+  cout << "done" << endl;
   if (minArea < 0 || maxArea < 0 || minArea > maxArea) {
     Point minMax = getMinAndMaxAreas(video[startFrame]);
     minArea = minMax.x;

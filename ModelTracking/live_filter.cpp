@@ -18,30 +18,25 @@ firefly_t * f;
 firefly_camera_t * camera;
 
 int capture_from_camera(Mat * dst) {
-  firefly_frame_t frame = firefly_capture_frame(camera);
-  if (frame.err < 0) {
-    return -1;
-  }
-  if (frame.frames_behind > 0) {
-    firefly_flush_camera(camera);
-    return capture_from_camera(dst);
-  }
-  *dst = frame.img;
-  return 0;
+  return opencv_firefly_capture(camera, dst);
 }
 
 int main(int argc, char* argv[]) {
+  Model::init();
   f = firefly_new();
   firefly_setup_camera(f, &camera);
+  firefly_start_transmission(camera);
   namedWindow("Output", CV_WINDOW_AUTOSIZE);
+  namedWindow("Input", CV_WINDOW_AUTOSIZE);
   Mat frame, dst;
   vector< vector<Point> > contours;
   while (waitKey(1000/60) == -1) {
     int rc = capture_from_camera(&frame);
-    filterAndFindContours(frame, &contours);
+    filterAndFindContours(frame.clone(), &contours);
     dst = Mat::zeros(frame.size(), CV_8UC3);
     drawContoursFast(dst, &contours, 500, 25000);
     imshow("Output", dst);
+    imshow("Input", frame);
   }
   firefly_stop_transmission(camera);
   firefly_cleanup_camera(camera);

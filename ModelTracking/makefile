@@ -36,14 +36,29 @@ mbr_tracker: mbr_tracker.cpp mtlib.o firefly.o
 gear_tracker: gear_tracker.cpp mtlib.o
 	${CC} ${LDFLAGS} gear_tracker.cpp mtlib.o  -o gear_tracker
 
-filter_test: filter_test.cpp mtlib.o
-	${CC} ${LDFLAGS} filter_test.cpp mtlib.o  -o filter_test
+filter_test: filter_test.cpp mtlib.o firefly.o
+	${CC} ${LDFLAGS} filter_test.cpp mtlib.o firefly.o -o filter_test
 
 video_writer_test: video_writer_test.cpp mtlib.o
 	${CC} ${LDFLAGS} video_writer_test.cpp mtlib.o  -o video_writer_test
 
 live_filter: live_filter.cpp mtlib.o firefly.o
 	${CC} ${LDFLAGS} live_filter.cpp mtlib.o firefly.o -o live_filter
+
+capture_stills: capture_stills.cpp mtlib.o firefly.o
+	${CC} ${LDFLAGS} capture_stills.cpp mtlib.o firefly.o -o capture_stills
+
+firefly_test : firefly_test.cpp firefly.o mtlib.o
+	${CC} ${LDFLAGS} firefly_test.cpp firefly.o mtlib.o -o firefly_test
+
+perspective_test : perspective_test.cpp mtlib.o
+	${CC} ${LDFLAGS} perspective_test.cpp mtlib.o -o perspective_test
+
+figures: figures.cpp mtlib.o
+	${CC} ${LDFLAGS} figures.cpp mtlib.o -o figures
+
+test: test.cpp mtlib.o
+	${CC} ${LDFLAGS} test.cpp mtlib.o -o test
 
 all:
 	make ModelsTest
@@ -55,15 +70,26 @@ all:
 	make filter_test
 	make video_writer_test
 	make live_filter
+	make capture_stills
+	make firefly_test
+	make perspective_test
+	make figures
+	make test
 clean:
 	rm *.o
 	rm ModelsTest
 	rm AffineTest
 	rm ShrinkTest
 	rm GearTracking
-	rm Threshholdb
+	rm Threshhold
 	rm mbr_tracker
 	rm gear_tracker
 	rm filter_test
 	rm video_writer_test
 	rm live_filter
+	rm capture_stills
+	rm firefly_test
+	rm perspective_test
+	rm figures
+	rm test
+

@@ -1,12 +1,16 @@
-
+#include <unistd.h>
 #include <dc1394/dc1394.h>
 #include <dc1394/format7.h>
 #include <stdlib.h>
 #include <inttypes.h>
 #include <opencv2/opencv.hpp>
-
-
+#include <time.h>
+#include <chrono>
 #include "firefly.h"
+
+using namespace std;
+using namespace cv;
+using namespace std::chrono;
 
 void cleanup_and_exit(firefly_camera_t *camera)
 {
@@ -84,7 +88,7 @@ firefly_error_t firefly_setup_camera(firefly_t * f, firefly_camera_t ** camera) 
     return err;
   }
 
-  err=dc1394_video_set_framerate(*camera, DC1394_FRAMERATE_60);
+  err=dc1394_video_set_framerate(*camera, DC1394_FRAMERATE_30);
   if (err < 0) {
     printf("Could not set framerate\n");
     return err;
@@ -105,8 +109,23 @@ firefly_error_t firefly_start_transmission(firefly_camera_t * camera) {
   }
   return DC1394_SUCCESS;
 }
+void firefly_get_color_transform(firefly_camera_t * camera) {
+  namedWindow("Camera", CV_WINDOW_AUTOSIZE);
+  Mat frame;
+  int codes[] = {CV_BayerBG2BGR, CV_BayerGB2BGR, CV_BayerRG2BGR, CV_BayerGR2BGR, 
+                 CV_BayerBG2BGR, CV_BayerGB2BGR, CV_BayerRG2BGR, CV_BayerGR2BGR};
+  string names[] = {"CV_BayerBG2BGR", "CV_BayerGB2BGR", "CV_BayerRG2BGR", "CV_BayerGR2BGR", 
+                    "CV_BayerBG2BGR", "CV_BayerGB2BGR", "CV_BayerRG2BGR", "CV_BayerGR2BGR"};
+  for (int i = 0; i < 8; i++) {
+    cout << "Code: " << names[i] << endl;
+    while (waitKey(1000/144) == -1) {
+      opencv_firefly_capture(camera, &frame, codes[i]);
+      imshow("Camera", frame);
+    }
+  }
 
-firefly_frame_t firefly_capture_frame(firefly_camera_t * camera) {
+}
+firefly_frame_t firefly_capture_frame(firefly_camera_t * camera, int code) {
   dc1394video_frame_t *frame;
   dc1394error_t err=dc1394_capture_dequeue(camera, DC1394_CAPTURE_POLICY_WAIT, &frame);/* Capture */
   if (err < 0) {
@@ -115,14 +134,16 @@ firefly_frame_t firefly_capture_frame(firefly_camera_t * camera) {
 
   //Convert to RGB from raw format
   cv::Mat bayer_img(frame->size[1], frame->size[0], CV_8UC1, frame->image, frame->stride);
-  cv::Mat img(frame->size[1], frame->size[0], CV_8UC3);
-  cv::cvtColor(bayer_img, img, CV_BayerRG2BGR);
+  cv::Mat img(frame->size[1]/2, frame->size[0]/2, CV_8UC3);
+  cv::cvtColor(bayer_img, img, code);
   
   dc1394_capture_enqueue(camera, frame);
   firefly_frame_t f;
   f.img = img;
   f.frames_behind = frame->frames_behind;
   f.err = err;
+  f.timestamp = duration_cast<milliseconds>
+    (system_clock::now().time_since_epoch()).count();
   return f;
 }
 
@@ -155,3 +176,23 @@ void firefly_cleanup_camera(firefly_camera_t * camera) {
 void firefly_free(firefly_t * f) {
   dc1394_free(f);
 }
+void firefly_flush_camera_no_restart(firefly_camera_t * camera) {
+  firefly_frame_t frame;
+  for (int i = 0; i < 5; i++) {
+    frame = firefly_capture_frame(camera);
+  }
+}
+int opencv_firefly_capture(firefly_camera_t * camera, cv::Mat * dst, int code) {
+  firefly_frame_t frame = firefly_capture_frame(camera, code);
+  if (frame.err < 0) {
+    return -1;
+  }
+  if (frame.frames_behind > 0) {
+    firefly_flush_camera(camera);
+    firefly_start_transmission(camera);
+    return opencv_firefly_capture(camera, dst);
+  }
+  *dst = frame.img;
+  return frame.timestamp;
+}
+

@@ -7,13 +7,17 @@
 #include <iostream>
 #include <stdlib.h>
 #include <string>
+#include <fstream>
 
 namespace mtlib {
-  enum mask_t { NOMASK, QUAD_LL, QUAD_LR, QUAD_UL, QUAD_UR, HALF_L, HALF_R,
-                HALF_U, HALF_D, MT_MAX = HALF_D };
+  enum mask_t { NOMASK, MQUAD_LL, MQUAD_LR, MQUAD_UL, MQUAD_UR, MHALF_L, MHALF_R,
+                MHALF_U, MHALF_D, MT_MAX = MHALF_D };
+  enum exposure_t { NOEXP, EQUAD_LL, EQUAD_LR, EQUAD_UL, EQUAD_UR, EHALF_L, EHALF_R,
+                EHALF_U, EHALF_D, ET_MAX = EHALF_D };
   class Model {
   public:
-
+    //Initializes some internal states for the models. This only needs to be called once
+    static void init();
     //calculates the rotation of given contour and center with respect to the model
     double getContourRot(std::vector<cv::Point>, cv::Point);
     //returns the center at time t. If t < 0 then it returns the most recently added center
@@ -22,6 +26,10 @@ namespace mtlib {
     double getRotation(int t = -1);
     //returns the contour at time t. If t < 0 then it returns the most recently added contour
     std::vector<cv::Point> getContour(int t = -1);
+    //returns the timestamp at time t. If t < 0 then it returns the most recently added timestamp
+    unsigned long getTimestamp(int t = -1);
+    //returns the found flag at time t. If t < 0 then it returns the most recently added flag
+    bool getFoundFlag(int t = -1);
     //returns the rotation signal at time t. If t < 0 then it returns the most recently 
     //added rotation signal
     std::vector<double> getRotationSignal(int t = -1);
@@ -31,19 +39,29 @@ namespace mtlib {
     void nextMask();
     //gets the current mask of the model
     mask_t getMask();
+    //cycles the exposure of this contour to the next one
+    void nextExposure();
+    //gets the current exposure of the model
+    exposure_t getExposure();
     //sets the mask
     void setMask(mask_t);
+    //sets the exposure
+    void setExposure(exposure_t);
     //returns the area to serach for the object in the given frame
     //this is simply the bounding box of the last position enlarged by some factor
     cv::Rect getSearchArea(cv::Mat frame);
-    //adds the given center, angle, rotation signal, and contour to their respective vectors
+    //adds the given center, angle, rotation signal, contour, found flag, and timestamp
+    //to their respective vectors
     void update(cv::Point center, double angle, std::vector<double> rotSig,
-                std::vector<cv::Point> contour);
+                std::vector<cv::Point> contour, bool, unsigned long);
     //Returns the time index most recently added. Calling a method such as drawModel with
     //the value returned will draw the most recent update
     int curTime();
-    //draws the contour of this model at some time index t on the image dst
-    void drawContour(cv::Mat dst, int t);
+    //draws the contour of this model at some time index t in the given color
+    //on the image dst
+    void drawContour(cv::Mat dst, int t, cv::Scalar color=cv::Scalar(255, 255, 255));
+    //draws the exposure of this model at some time index t on the image dst
+    void drawExposure(cv::Mat dst, int t);
     //draws a dot for the center and a line for the orientation at some time 
     //index t on the image dst
     void drawModel(cv::Mat dst, int t);
@@ -56,18 +74,24 @@ namespace mtlib {
     cv::RotatedRect getBoundingBox(int t=-1);
     //Draws the bounding box for some time index t on a mat frame with color c
     void drawBoundingBox(cv::Mat frame, int t, cv::Scalar c);
+    //returns an integer unique to this model
+    int getId();
+    //Writes out all of the collected data for this model
+    void write_data(std::ofstream * strm);
     //Constructs a new model given the center of the contour, its bounding box, its area
-    //and the contour itself
+    //the contour itself and an initial timestamp
     Model(cv::Point center, cv::RotatedRect bounding, double a, 
-          std::vector<cv::Point> cont);
-
+          std::vector<cv::Point> cont, unsigned long timestamp);
   private:
+    static int count;
     const static int numTemplates = 360;
     cv::Point centerToCorner;
     const static double searchEnlargement;
     cv::RotatedRect bounding;
     std::vector<double> oSig;
     std::vector<cv::Point> contour;
+    std::vector<unsigned long> timestamps;
+    std::vector<bool> foundFlags;
     int w, h;
     double area;
     std::vector<cv::Point> centers;
@@ -75,6 +99,8 @@ namespace mtlib {
     std::vector< std::vector<cv::Point> > contours;
     std::vector<double> rotations;
     mask_t mask;
+    exposure_t exposure;
+    int id;
   };
 
 
@@ -82,11 +108,13 @@ namespace mtlib {
   std::string type2str(int type);
 
 
-  //Opens a Video capture and loads the video stored at the
-  //location given by filename into the video matrix
-  //stores the fps of the video into fps, the size in s
-  //and the codec in ex
-  //returns true if video was sucessfully captured
+  /***********************************************************/
+  /* Opens a Video capture and loads the video stored at the */
+  /* location given by filename into the video matrix        */
+  /* stores the fps of the video into fps, the size in s     */
+  /* and the codec in ex                                     */
+  /* returns true if video was sucessfully captured          */
+  /***********************************************************/
 
   bool captureVideo(char* path, std::vector<cv::Mat>*, int* fps, cv::Size * s, int* ex);
 
@@ -134,13 +162,15 @@ namespace mtlib {
   //Takes a frame from a video (probably the first one), identifies the individual
   //contours (that lie between the min and max area) and then generates a model for each one,
   //appending it to the end of the given vector
-  void generateModels(cv::Mat frame, std::vector<mtlib::Model> * models, int minArea, int maxArea);
+  void generateModels(cv::Mat frame, std::vector<mtlib::Model> * models, int minArea, 
+                      int maxArea, unsigned long timestamp=0);
 
   //Takes a frame and a list of models and updates the models with the data in the frame.
   //Locating each model depends on the current model position being relatively close to the new one
   //so this method should be applied to each frame consecutively. This method uses
   //min and max to filter out contours by area
-  void updateModels(cv::Mat frame, std::vector<mtlib::Model> * models, int min, int max);
+  void updateModels(cv::Mat frame, std::vector<mtlib::Model> * models, int min, int max,
+                    unsigned long timestamp=0);
 
   //Displays the given frame with sliders for the minimum and maximum areas for drawing contours.
   //When the user hits a key the window closes and the function returns a Point containing the
@@ -157,6 +187,15 @@ namespace mtlib {
   
   //Determines if a given point lies inside a give rotated rect
   bool pointInRotatedRectangle(int , int , cv::RotatedRect);
+  
+  //Takes a set of models and performs (click) on each one when clicked and redraws the scene
+  //with a call to (draw) for each model
+  void selectProp(cv::Mat frame, std::vector<Model> * models, const char *,
+                  void (*draw)(Model*, cv::Mat),
+                  void (*click)(Model*));
+  //Takes a frame and a vector of objects found in that frame and prompts the user to select
+  //Which type of exposing they want for each object
+  void selectExposures(cv::Mat, std::vector<mtlib::Model> *);
   //Takes a frame and a vector of objects found in that frame and prompts the user to select
   //Which type of masking they want for each object
   void selectMasks(cv::Mat, std::vector<mtlib::Model> *);
@@ -169,9 +208,11 @@ namespace mtlib {
   void setDefaultChannel(int channel);
 
 
-  std::vector<cv::Point> getAffineTransformPoints(cv::Mat frame, cv::Mat (*capture)(),
-                                                  int w, int h, int x, int y);
+  cv::Mat expandForDMD(cv::Mat, int, int);
+  std::vector<cv::Point2f> getAffineTransformPoints(cv::Mat frame, int (*capture)(cv::Mat*),
+                                                    std::string, int w, int h);
 
+  std::vector<cv::Point2f> autoCalibrate(int (*)(cv::Mat *), std::string, cv::Size);
   cv::Mat fourToOne(cv::Mat);
 
   void getNPoints(int, std::string, std::vector<cv::Point>*, cv::Mat);
@@ -219,6 +260,11 @@ namespace mtlib {
   //Computes the best fit circle for a set of points. The returned point has the format
   // (x, y, radius)
   cv::Point3i fitCircle(std::vector<cv::Point2i>);
+  //returns true if the given file exists false otherwise
+  bool file_exists(const std::string);
+  //saves the fiven frame with the given filename and suffix adding numbers to avoid
+  //ovewriting files
+  void save_frame_safe(cv::Mat, const char*, const char*);
 }
 
 #endif
