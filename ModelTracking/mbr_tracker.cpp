@@ -51,17 +51,12 @@ void dmd_imshow(Mat im) {
   bitwise_not(im, inv);
   Mat warped(Size(dmd_w, dmd_h), CV_8UC3);
   Mat expanded = expandForDMD(inv, dmd_w, dmd_h);
-  if (perspective) {
-    warpPerspective(expanded, warped, warp_mat, warped.size(),
-                    INTER_LINEAR, BORDER_CONSTANT, Scalar(255, 255, 255));
-  } else {
-    warpAffine(expanded, warped, warp_mat, warped.size(),
-               INTER_LINEAR, BORDER_CONSTANT, Scalar(255, 255, 255));
-  }
+  warpPerspective(expanded, warped, warp_mat, warped.size(),
+                  INTER_LINEAR, BORDER_CONSTANT, Scalar(255, 255, 255));
   imshow("DMD", warped);
 }
 int capture_from_video(Mat * dst) {
-  usleep(33333);
+  usleep(30000);
   time_idx++;
   if (time_idx > video.size()) {
     return -1;
@@ -99,7 +94,7 @@ void* capture_input(void*) {
     pthread_mutex_unlock(&frame_mutex);
     pthread_mutex_lock(&frame_count_mutex);
     time = time_milliseconds() - time;
-    printf("%lu milliseconds to capture frame %d\n", time, frame_count);
+    //printf("%lu milliseconds to capture frame %d\n", time, frame_count);
     pthread_mutex_unlock(&frame_count_mutex);
   }
   return NULL;
@@ -113,9 +108,9 @@ void selectExposuresCallback(int event, int x, int y, int, void*) {
   }
 
   if (lastMouseButton == false) {
-    pthread_mutex_lock(&cont_frame_mutex);
+    /*pthread_mutex_lock(&cont_frame_mutex);
     cv::Mat frame = current_cont_frame.clone();
-    pthread_mutex_unlock(&cont_frame_mutex);
+    pthread_mutex_unlock(&cont_frame_mutex);*/
     pthread_mutex_lock(&models_mutex);
     vector<mtlib::Model> models_copy = models;
     vector<bool> exposing_copy = exposing;
@@ -135,7 +130,7 @@ void selectExposuresCallback(int event, int x, int y, int, void*) {
       exposing[min] = exposing_copy[min];
       pthread_mutex_unlock(&models_mutex);
     }
-    for (int n = 0; n < models_copy.size(); n++) {
+    /*for (int n = 0; n < models_copy.size(); n++) {
       Scalar color(0, 0, 255);
       if (exposing_copy[n]) {
         color = Scalar(0, 255, 0);
@@ -146,14 +141,16 @@ void selectExposuresCallback(int event, int x, int y, int, void*) {
       for (int i = 0; i < 4; i++)
         line(frame, verticies[i], verticies[(i+1)%4], color, 2);
 
-    }
+    }*/
   }
   lastMouseButton = true;
 }
 void process_output() {
   Mat dst = Mat::zeros(frame_size, CV_8UC3);
   Mat dst2 = Mat::zeros(frame_size, CV_8UC3);
+  unsigned long t;
   for (int i = 0; i < models.size(); i++) {
+    t = time_milliseconds();
     if (exposing[i]) {
       if (masking) {
         models[i].drawContour(dst, models[i].curTime());
@@ -163,7 +160,9 @@ void process_output() {
       }
 
     }
-
+    t = time_milliseconds() - t;
+    //printf("%lu milliseconds to draw models for dmd\n", t);
+    t = time_milliseconds();
     models[i].drawContour(dst2, models[i].curTime());
     Scalar color(0, 0, 255);
     if (exposing[i]) {
@@ -173,12 +172,17 @@ void process_output() {
     models[i].getBoundingBox().points(verticies);
     for (int j = 0; j < 4; j++)
       line(dst2, verticies[j], verticies[(j+1)%4], color, 2);
+    t = time_milliseconds() - t;
+    //printf("%lu milliseconds to draw models for Tracking window\n", t);
   }
-  pthread_mutex_lock(&cont_frame_mutex);
+  /*pthread_mutex_lock(&cont_frame_mutex);
   current_cont_frame = dst2.clone();
-  pthread_mutex_unlock(&cont_frame_mutex);
+  pthread_mutex_unlock(&cont_frame_mutex);*/
+  t = time_milliseconds();
   dmd_imshow(dst);
   imshow("Tracking", dst2);
+  t = time_milliseconds() - t;
+  //printf("%lu milliseconds to display images\n", t);
 }
 void new_file(int n) {
   char buff[50];
@@ -216,7 +220,7 @@ void* process_input(void*) {
     pthread_mutex_unlock(&frame_mutex);
     t1 = time_milliseconds() - t1;
     pthread_mutex_lock(&frame_count_mutex);
-    printf("%lu milliseconds to copy data for frame %d\n", t1, frame_count);
+    //printf("%lu milliseconds to copy data for frame %d\n", t1, frame_count);
     pthread_mutex_unlock(&frame_count_mutex);
     /* if a new frame was found process it */
     if (new_frame_copy) {
@@ -244,12 +248,12 @@ void* process_input(void*) {
       t = time_milliseconds() - t;
 
       pthread_mutex_lock(&frame_count_mutex);
-      printf("%lu milliseconds to write frame %d\n", t3, 
+      /*printf("%lu milliseconds to write frame %d\n", t3, 
              frame_count);
       printf("%lu milliseconds to process output for frame %d\n", t2, 
              frame_count);
       printf("%lu milliseconds to process frame %d\n", t, 
-             frame_count);
+      frame_count);*/
 
       pthread_mutex_unlock(&frame_count_mutex);
     }
@@ -296,19 +300,17 @@ int main(int argc, char* argv[]) {
       input_given = true;
       captureVideo(argv[i+1], &video, &fps, &S, &ex);      
       i++;
-    } else if (strncmp(argv[i], "--affine-args", 15) == 0) {
+    } else if (strncmp(argv[i], "--dmd-args", 15) == 0) {
       dmd_w = stoi(argv[i+1]);
       dmd_h = stoi(argv[i+2]);
       dmd_x = stoi(argv[i+3]);
       dmd_y = stoi(argv[i+4]);
       i += 4;
-    } else if (strncmp(argv[i], "--perspective", 15) == 0) {
-      perspective = true;
     } else if (strncmp(argv[i], "--help", 15) == 0) {
       cout << "This is mbr_tracker, a utility to track microstructures"
            << " in the MSRL and Lynch laboratories" << endl << endl;
       cout << "\tThere are two arguments that must be given:" << endl
-           << "--expose/--mask, and --camera/ file. The first pair chooses" << endl
+           << "--expose/--mask, and --camera/--file. The first pair chooses" << endl
            << "whether you want to expose predified shapes on top of the MBRs" << endl
            << "or mask their contours. The second specifies camera or file" << endl
            << "input, the file input must be followed by the name of a video" << endl
@@ -323,10 +325,30 @@ int main(int argc, char* argv[]) {
       cout << "--write-data <filename>" << endl << setw(90)
            << "Writes the data"
         " of the tracked model to the specified filename" << endl;
-      cout <<"--affine-args <integer> <integer> <integer> <integer>" << endl << setw(90)
+      cout <<"--dmd-args <integer> <integer> <integer> <integer>" << endl << setw(90)
            << " Sets the width, height, x position, and y position" 
            " of the output window" << endl;
       return 0;
+    }
+  }
+  if (!writing_data) {
+    writing_data = true;
+    time_t rawtime;
+    struct tm * timeinfo;
+    char buff[80];
+    
+    time(&rawtime);
+    timeinfo = localtime(&rawtime);
+    strftime(buff,80,"tracking_output-%m-%d-%Y-%H:%M", timeinfo);
+    data_file = buff;
+  }
+  if (!writing) {
+    cout << "Are you sure you don't want to save a video? (y/n): " << endl;
+    char rsp;
+    cin >> rsp;
+    if (rsp != 'y') {
+      cout << "Restart the program with the '--write-video <filename>' flag" << endl;
+      exit(0);
     }
   }
   dmd_size = Size(dmd_w, dmd_h);
@@ -354,8 +376,7 @@ int main(int argc, char* argv[]) {
   string warp_file = "warp_data.data";
   Point2f src_pts[4];
   Point2f dst_pts[4];
-  int num_points = 3;
-  if (perspective) num_points = 4;
+  int num_points = 4;
   if (file_exists(warp_file)) {
     ifstream warp_file_stream;
     warp_file_stream.open(warp_file, ios::in);
@@ -406,11 +427,7 @@ int main(int argc, char* argv[]) {
   }
   if (!using_file_transform) {
     vector<Point2f> pts;
-    if (!perspective) {
-      pts = getAffineTransformPoints(frame0, cap, "DMD", dmd_w, dmd_h);
-    } else {
-      pts = autoCalibrate(cap, "DMD", Size(dmd_w, dmd_h));
-    }
+    pts = autoCalibrate(cap, "DMD", Size(dmd_w, dmd_h));
     for (int i = 0; i < num_points; i++) src_pts[i] = pts[i];
     for (int i = 0; i < num_points; i++) dst_pts[i] = pts[i+num_points];
     ofstream warp_file_stream;
@@ -424,17 +441,17 @@ int main(int argc, char* argv[]) {
       warp_file_stream << dst_pts[i].x << " " << dst_pts[i].y << " ";
     }
   }
-  if (!perspective) 
-    warp_mat = getAffineTransform(dst_pts, src_pts);
-  else
-    warp_mat = getPerspectiveTransform(dst_pts, src_pts);
+  warp_mat = getPerspectiveTransform(dst_pts, src_pts);
   cout << warp_mat << endl;
   if (minArea < 0 || maxArea < 0 || minArea > maxArea) {
     Point minMax = getMinAndMaxAreas(frame0);
     minArea = minMax.x;
     maxArea = minMax.y;
   }
-
+  Mat black(Size(dmd_w, dmd_h), CV_8UC3, Scalar(0, 0, 0));
+  dmd_imshow(black);
+  usleep(1000);
+  cap(&frame0);
   while (true) {
     models.clear();
     generateModels(frame0, &models, minArea, maxArea);
@@ -459,7 +476,6 @@ int main(int argc, char* argv[]) {
     destroyWindow("Models");
   }
   pthread_t cap_thread, proc_thread;
-  Mat black(Size(dmd_w, dmd_h), CV_8UC3, Scalar(0, 0, 0));
  
   dmd_imshow(black);
   namedWindow("Tracking", CV_WINDOW_AUTOSIZE);
@@ -529,9 +545,11 @@ int main(int argc, char* argv[]) {
     exit(-1);
   }
   if (writing_data) {
-    cout << "Writing data" << endl;
+    string data_name = safe_filename(data_file, ".ssv");
+    cout << "Writing data to " << data_name << endl;
+    
     ofstream data_file_stream;
-    data_file_stream.open(data_file, ios::out);
+    data_file_stream.open(data_name, ios::out);
     for (int n = 0; n < models.size(); n++) {
       models[n].write_data(&data_file_stream);
     }
