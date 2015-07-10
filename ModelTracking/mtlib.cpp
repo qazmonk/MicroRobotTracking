@@ -1231,12 +1231,16 @@ vector<Point2f> mtlib::autoCalibrate(int (*capture)(Mat*), string dmd_window, Si
     cout << "Press any key when the blue dot is in the center of the light area" << endl;
     while (waitKey(1000/60) == -1) {
       capture(&cap);
-      Mat gray, gray_color;
+      Mat gray, color, thresh_img;
       cvtColor(cap, gray, CV_BGR2GRAY);
-      cvtColor(gray, gray_color, CV_GRAY2BGR);
+
       c = get_light_center(gray, thresh);
-      circle(gray_color, c, 3, Scalar(255, 0, 0));
-      imshow("Calibration", gray_color);
+      threshold(gray, thresh_img, thresh, 255, THRESH_BINARY);
+      Mat comb;
+      combineHorizontal(comb, gray, thresh_img);
+      cvtColor(comb, color, CV_GRAY2BGR);
+      circle(color, c, 3, Scalar(255, 0, 0));
+      imshow("Calibration", color);
     }
     pts.push_back(c);
     dst_pts[i] = c;
@@ -1741,6 +1745,16 @@ void mtlib::setPolarEdges(cv::Mat polar, Point cent) {
 inline bool mtlib::file_exists(const string name) {
   struct stat buffer;
   return (stat (name.c_str(), &buffer) == 0);
+}
+string mtlib::safe_filename(char * prefix, char * suffix) {
+  int count = 0;
+  char buffer[100];
+  sprintf(buffer, "%s-%.4d%s", prefix, count, suffix);
+  while (file_exists(buffer)) {
+    count++;
+    sprintf(buffer, "%s-%.4d%s", prefix, count, suffix);
+  }
+  return buffer;
 }
 void mtlib::save_frame_safe(Mat frame, const char * filename, const char * suffix) {
   int count = 0;

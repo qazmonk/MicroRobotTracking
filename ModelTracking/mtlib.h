@@ -262,9 +262,14 @@ namespace mtlib {
   cv::Point3i fitCircle(std::vector<cv::Point2i>);
   //returns true if the given file exists false otherwise
   bool file_exists(const std::string);
+  
+  //takes as input a file name and an extension and appends incrementing numbers to the end
+  //until it finds a name that has not already been taken
+  std::string safe_filename(char *, char *);
   //saves the fiven frame with the given filename and suffix adding numbers to avoid
   //ovewriting files
   void save_frame_safe(cv::Mat, const char*, const char*);
+
 }
 
 #endif
