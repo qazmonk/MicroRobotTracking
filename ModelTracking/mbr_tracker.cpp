@@ -254,7 +254,6 @@ void* process_input(void*) {
              frame_count);
       printf("%lu milliseconds to process frame %d\n", t, 
       frame_count);*/
-
       pthread_mutex_unlock(&frame_count_mutex);
     }
   }
