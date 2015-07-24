@@ -35,6 +35,6 @@ void firefly_cleanup_camera(firefly_camera_t * camera);
 
 void firefly_free(firefly_t * f);
 
-int opencv_firefly_capture(firefly_camera_t * camera, cv::Mat * dst, int code=CV_BayerBG2BGR);
+long opencv_firefly_capture(firefly_camera_t * camera, cv::Mat * dst, int code=CV_BayerBG2BGR);
 
 #endif

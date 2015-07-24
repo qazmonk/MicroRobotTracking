@@ -19,7 +19,7 @@ namespace mtlib {
     //Initializes some internal states for the models. This only needs to be called once
     static void init();
     //calculates the rotation of given contour and center with respect to the model
-    double getContourRot(std::vector<cv::Point>, cv::Point);
+    cv::Point2d getContourRot(std::vector<cv::Point>, cv::Point);
     //returns the center at time t. If t < 0 then it returns the most recently added center
     cv::Point getCenter(int t = -1);
     //returns the rotation at time t. If t < 0 then it returns the most recently added rotation
@@ -30,6 +30,9 @@ namespace mtlib {
     unsigned long getTimestamp(int t = -1);
     //returns the found flag at time t. If t < 0 then it returns the most recently added flag
     bool getFoundFlag(int t = -1);
+    //returns the cost of the rotation against the model at time t. If t < 0 then it returns
+    //the most recently added cost
+    double getCost(int t = -1);
     //returns the rotation signal at time t. If t < 0 then it returns the most recently 
     //added rotation signal
     std::vector<double> getRotationSignal(int t = -1);
@@ -50,10 +53,10 @@ namespace mtlib {
     //returns the area to serach for the object in the given frame
     //this is simply the bounding box of the last position enlarged by some factor
     cv::Rect getSearchArea(cv::Mat frame);
-    //adds the given center, angle, rotation signal, contour, found flag, and timestamp
+    //adds the given center, angle, rotation signal, contour, found flag, timestamp, and cost
     //to their respective vectors
     void update(cv::Point center, double angle, std::vector<double> rotSig,
-                std::vector<cv::Point> contour, bool, unsigned long);
+                std::vector<cv::Point> contour, bool, unsigned long, double);
     //Returns the time index most recently added. Calling a method such as drawModel with
     //the value returned will draw the most recent update
     int curTime();
@@ -73,11 +76,14 @@ namespace mtlib {
     //returns the most recent one
     cv::RotatedRect getBoundingBox(int t=-1);
     //Draws the bounding box for some time index t on a mat frame with color c
-    void drawBoundingBox(cv::Mat frame, int t, cv::Scalar c);
+    void drawBoundingBox(cv::Mat frame, cv::Scalar c, int t=-1);
     //returns an integer unique to this model
     int getId();
     //Writes out all of the collected data for this model
     void write_data(std::ofstream * strm);
+    //Returns a string that contains descriptive information about the state of the
+    //model at time t. If t < 0 then it uses the most recently added data
+    std::string get_info_string(int t = -1);
     //Constructs a new model given the center of the contour, its bounding box, its area
     //the contour itself and an initial timestamp
     Model(cv::Point center, cv::RotatedRect bounding, double a, 
@@ -98,6 +104,7 @@ namespace mtlib {
     std::vector< std::vector<double>  > rotSigs;
     std::vector< std::vector<cv::Point> > contours;
     std::vector<double> rotations;
+    std::vector<double> costs;
     mask_t mask;
     exposure_t exposure;
     int id;
@@ -108,15 +115,19 @@ namespace mtlib {
   std::string type2str(int type);
 
 
-  /***********************************************************/
-  /* Opens a Video capture and loads the video stored at the */
-  /* location given by filename into the video matrix        */
-  /* stores the fps of the video into fps, the size in s     */
-  /* and the codec in ex                                     */
-  /* returns true if video was sucessfully captured          */
-  /***********************************************************/
 
-  bool captureVideo(char* path, std::vector<cv::Mat>*, int* fps, cv::Size * s, int* ex);
+  /**************************************************************/
+  /* Opens a Video capture and loads the video stored at the    */
+  /* location given by filename into the video matrix           */
+  /* stores the fps of the video into fps, the size in s        */
+  /* and the codec in ex. A final optional parameter can change */
+  /* how many frames get captured, -1 for the entire video      */
+  /* returns true if video was sucessfully captured             */
+  /**************************************************************/
+
+
+  bool captureVideo(char* path, std::vector<cv::Mat>*, int* fps, cv::Size * s, int* ex,
+                    int num_frames = -1);
 
 
   //Writes a .mov video to the specified filename consisting of the given frames
@@ -132,11 +143,18 @@ namespace mtlib {
   void drawLines(cv::Mat, std::vector<cv::Vec2f> *);
   //Applies just the filter for filter and find contours
   void filter(cv::Mat&, cv::Mat);
+  //Applies the same filter as 'filter()' but returns a vector with inbetween
+  //setps for debugging purposes
+  std::vector<cv::Mat> filter_debug(cv::Mat&, cv::Mat);
   //Applies several filters to an image before finding the contours and storing the results
   //in contours and hierarchy. A channel can optionally be supplied to apply the filters to
   //a channel other than 2
   void filterAndFindContours(cv::Mat src, std::vector< std::vector<cv::Point> > * contours,
                              cv::Point off=cv::Point(0, 0));
+  //closes holes in the contour that contains the center point and does not contain anything
+  //outside the bounding box. Then the function normally finds the contours
+  void closeHolesAndFindContours(cv::Mat src, std::vector< std::vector<cv::Point> > * contours,
+                                 cv::Point off, cv::Point center, cv::Rect bounding_box);
   //Does the same thing as above but with different filters for Elizabeth's videos
   void filterAndFindContoursElizabeth(cv::Mat src,
                                       std::vector< std::vector<cv::Point> > * contours,
@@ -147,6 +165,9 @@ namespace mtlib {
   //Draws the contours with areas in the given range onto the dst quickly
   //does not apply filters
   void drawContoursFast(cv::Mat dst, std::vector< std::vector<cv::Point> > * contours,
+                        int minArea, int maxArea);
+  //Does the same thing as drawContoursFast but also puts a box around each contour
+  void drawContoursBoxed(cv::Mat dst, std::vector< std::vector<cv::Point> > * contours,
                         int minArea, int maxArea);
   //Draws the contours with areas in the given range onto the dst and then
   //applies some filters
@@ -170,7 +191,7 @@ namespace mtlib {
   //so this method should be applied to each frame consecutively. This method uses
   //min and max to filter out contours by area
   void updateModels(cv::Mat frame, std::vector<mtlib::Model> * models, int min, int max,
-                    unsigned long timestamp=0);
+                    bool closeHoles=false, unsigned long timestamp=0);
 
   //Displays the given frame with sliders for the minimum and maximum areas for drawing contours.
   //When the user hits a key the window closes and the function returns a Point containing the
@@ -212,7 +233,7 @@ namespace mtlib {
   std::vector<cv::Point2f> getAffineTransformPoints(cv::Mat frame, int (*capture)(cv::Mat*),
                                                     std::string, int w, int h);
 
-  std::vector<cv::Point2f> autoCalibrate(int (*)(cv::Mat *), std::string, cv::Size);
+  std::vector<cv::Point2f> autoCalibrate(long (*)(cv::Mat *), std::string, cv::Size);
   cv::Mat fourToOne(cv::Mat);
 
   void getNPoints(int, std::string, std::vector<cv::Point>*, cv::Mat);
@@ -265,7 +286,7 @@ namespace mtlib {
   
   //takes as input a file name and an extension and appends incrementing numbers to the end
   //until it finds a name that has not already been taken
-  std::string safe_filename(char *, char *);
+  std::string safe_filename(char *, const char *);
   //saves the fiven frame with the given filename and suffix adding numbers to avoid
   //ovewriting files
   void save_frame_safe(cv::Mat, const char*, const char*);

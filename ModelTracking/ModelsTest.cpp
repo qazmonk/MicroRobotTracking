@@ -8,6 +8,7 @@
 #include "mtlib.h"
 #include <algorithm>
 #include <time.h>
+#include <sys/stat.h>
 
 using namespace std;
 using namespace cv;
@@ -25,12 +26,10 @@ void scrub(int, void*);
 
 int main(int argc, char* argv[]) {
   Model::init();
-  cout << "reading file..." << endl;
-  captureVideo(argv[1], &video, &fps, &S, &ex);
-  cout << "done" << endl;
-  bool write = false, partialComp = true;
-  int numFrames = video.size(), startFrame = 0;
-  char* output_folder;
+
+  bool write = false, partialComp = true, write_hq = false;
+  int endFrame = 0, startFrame = 0;
+  char* output_folder, *video_folder;
   int minArea = -1;
   int maxArea = -1;
 
@@ -44,21 +43,32 @@ int main(int argc, char* argv[]) {
       i++;
     } else if (strncmp(argv[i], "-n", 3) == 0) {
       partialComp = true;
-      numFrames = startFrame+stoi(argv[i+1]);
+      endFrame = startFrame+stoi(argv[i+1]);
       i++;
     } else if (strncmp(argv[i], "-s", 3) == 0) {
       startFrame = stoi(argv[i+1]);
       i++;
     } else if (strncmp(argv[i], "-e", 3) == 0) {
-      numFrames = stoi(argv[i+1]);
+      endFrame = stoi(argv[i+1]);
       i++;
     } else if (strncmp(argv[i], "--bounds", 10) == 0) {
       minArea = stoi(argv[i+1]);
       maxArea = stoi(argv[i+2]);
       i+=2;
+    } else if (strncmp(argv[i], "--hqvideo", 10) == 0) {
+      video_folder = argv[i+1];
+      write_hq = true;
+      i++;
     }
   }
-
+  cout << "reading file..." << endl;
+  if (endFrame <= startFrame) {
+    captureVideo(argv[1], &video, &fps, &S, &ex);
+    endFrame = video.size();
+  } else {
+    captureVideo(argv[1], &video, &fps, &S, &ex, endFrame);
+  }
+  cout << "done" << endl;
   /*int tmpa[] = {1, 2 ,3};
   vector<double> tmpv(tmpa,tmpa+sizeof(tmpa)/sizeof(int));
   namedWindow("tmp", CV_WINDOW_AUTOSIZE);
@@ -80,18 +90,17 @@ int main(int argc, char* argv[]) {
     selectedModels.push_back(models[selected[i]]);
   }
   models = selectedModels;
-  selectMasks(video[startFrame], &models);
   namedWindow(window, CV_WINDOW_AUTOSIZE);
   
 
   clock_t t;
-  for (int i = startFrame; i < numFrames; i += skip) {
+  for (int i = startFrame; i < endFrame; i += skip) {
 
     t = clock();
     
-    if (i > 0) {
+    if (i > startFrame) {
       cout << "calculating frame " << i << endl;
-      updateModels(video[i], &models, minArea, maxArea);
+      updateModels(video[i], &models, minArea, maxArea, true);
     }
 
     vector< vector<Point> > contours;
@@ -99,14 +108,14 @@ int main(int argc, char* argv[]) {
     filterAndFindContours(video[i], &contours);
     
     Mat dst = Mat::zeros(video[i].size(), CV_8UC3);
+    Mat contour_img = Mat::zeros(video[i].size(), CV_8UC3);
 
-
-    //drawContoursAndFilter(dst, &contours, &hierarchy, minArea, maxArea);
+    drawContoursBoxed(contour_img, &contours, minArea, maxArea);
 
     for (int n = 0; n < models.size(); n++) {
       int t = models[n].curTime();
       models[n].drawContour(dst, t);
-      models[n].drawBoundingBox(dst, t, Scalar(255, 0, 0));
+      models[n].drawBoundingBox(dst, Scalar(255, 0, 0), t);
       models[n].drawModel(dst, t);
     }
     
@@ -117,20 +126,31 @@ int main(int argc, char* argv[]) {
     printf("It took %f seconds to calculate that frame\n", ((float)t)/CLOCKS_PER_SEC);
 
     
-    Mat dst_fin0, dst_fin1, filtered;
+    Mat dst_fin0, dst_fin1, dst_fin2, filtered;
     Mat frame_copy = video[i].clone();
     drawModels(frame_copy, models, -1);
     combineHorizontal(dst_fin0, dst, frame_copy);
     filter(filtered, video[i]);
     Mat filtered_color;
     cvtColor(filtered, filtered_color, CV_GRAY2RGB);
-    combineVertical(dst_fin1, dst_fin0, filtered_color);
-    out.push_back(dst_fin1);
+    combineHorizontal(dst_fin2, filtered_color, contour_img);
+    combineVertical(dst_fin1, dst_fin0, dst_fin2);
+    Mat dst_fin;
+    resize(dst_fin1, dst_fin, Size(), 0.75, 0.75, CV_INTER_AREA);
+    out.push_back(dst_fin);
     
   }
   
   if (write) { writeVideo(output_folder, out, fps); }
-
+  if (write_hq) {
+    mkdir(video_folder, 0755);
+    char prefix[50];
+    sprintf(prefix, "%s/frame", video_folder);
+    cout << "Writing hw to " << prefix << endl;
+    for (int i = 0; i < out.size(); i++) {
+      save_frame_safe(out[i], prefix, ".png");
+    }
+  }
   createTrackbar("Scrubbing", window, &pos, out.size()-1, scrub);
 
   
@@ -144,4 +164,8 @@ int main(int argc, char* argv[]) {
 
 void scrub (int , void* ) {
   imshow(window, out[pos]);
+  cout << "Frame: " << pos << endl;
+  for (int i = 0; i < models.size(); i++) {
+    cout << models[i].get_info_string(pos) << endl;
+  }
 }

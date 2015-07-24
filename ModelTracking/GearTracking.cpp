@@ -83,7 +83,6 @@ int main(int argc, char* argv[]) {
   vector<Point> cur_corners;
   //Point prev_cent = getGearCenter(prev_corners);
   Point cur_cent;
-  double rotation = 0;
 
   vector<Point> centers;
   vector<double> rotations;

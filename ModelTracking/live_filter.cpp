@@ -30,11 +30,20 @@ int main(int argc, char* argv[]) {
   namedWindow("Input", CV_WINDOW_AUTOSIZE);
   Mat frame, dst;
   vector< vector<Point> > contours;
+  int minArea = 300;
+  int maxArea = 25000;
   while (waitKey(1000/60) == -1) {
-    int rc = capture_from_camera(&frame);
+    capture_from_camera(&frame);
     filterAndFindContours(frame.clone(), &contours);
     dst = Mat::zeros(frame.size(), CV_8UC3);
-    drawContoursFast(dst, &contours, 500, 25000);
+    drawContoursFast(dst, &contours, minArea, maxArea);
+    for (int i = 0; i < contours.size(); i++) {
+      int area = contourArea(contours[i]);
+      if (area > minArea && area < maxArea) {
+        Rect bounding = boundingRect(contours[i]);
+        rectangle(dst, bounding, Scalar(255, 0, 0), 2);
+      }
+    }
     imshow("Output", dst);
     imshow("Input", frame);
   }

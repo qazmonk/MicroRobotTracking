@@ -23,14 +23,8 @@ firefly_t * firefly_new() {
   return dc1394_new();
 }
 firefly_error_t firefly_setup_camera(firefly_t * f, firefly_camera_t ** camera) {
-  int i;
-  dc1394featureset_t features;
-  dc1394framerates_t framerates;
-  dc1394video_modes_t video_modes;
-  dc1394framerate_t framerate;
   dc1394video_mode_t video_mode;
   dc1394color_coding_t coding;
-  unsigned int width, height;
   dc1394error_t err;
   dc1394camera_list_t * list;
 
@@ -182,12 +176,13 @@ void firefly_flush_camera_no_restart(firefly_camera_t * camera) {
     frame = firefly_capture_frame(camera);
   }
 }
-int opencv_firefly_capture(firefly_camera_t * camera, cv::Mat * dst, int code) {
+long opencv_firefly_capture(firefly_camera_t * camera, cv::Mat * dst, int code) {
   firefly_frame_t frame = firefly_capture_frame(camera, code);
   if (frame.err < 0) {
     return -1;
   }
   if (frame.frames_behind > 0) {
+    cout << "flushing" << endl;
     firefly_flush_camera(camera);
     firefly_start_transmission(camera);
     return opencv_firefly_capture(camera, dst);

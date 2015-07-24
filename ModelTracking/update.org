@@ -1,0 +1,13 @@
+* mbr_tracker
+** Structure
+*** calibrate
+**** auto calibration
+*** Select bounds for contour size
+*** Begin tracking
+**** New filtering and orientation finding algorithms
+*** select models and exposure type
+**** contour based, non contour based
+*** tracking restarts now tracking only the selected model
+*** tracking continues with ability to toggle exposures for each model
+*** saves data
+** Show video of test

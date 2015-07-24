@@ -11,6 +11,7 @@
 #include "mtlib.h"
 #include <algorithm>
 #include <time.h>
+
 #include "firefly.h" 
 #include <sys/stat.h>
 #include <sstream>
@@ -29,7 +30,7 @@ unsigned long current_time=0;
 pthread_mutex_t frame_mutex, output_mutex, flag_mutex, models_mutex, cont_frame_mutex,
   frame_count_mutex;
 bool new_frame = false, new_output = false, kill_proccessing = false, capturing = false;
-bool outputting = false, writing = false;;
+bool outputting = false, writing = false, writing_hq = false;
 vector<Model> models;
 vector<bool> selected, exposing;
 Size frame_size;
@@ -39,7 +40,8 @@ vector<Mat> output;
 bool masking = false;
 bool perspective = false;
 VideoWriter output_cap;
-const char * output_file_prefix, *output_file_suffix;
+char video_hq_prefix[50];
+const char * output_file_prefix, *output_file_suffix, *output_folder;
 
 unsigned long time_milliseconds() {
   return chrono::duration_cast<chrono::milliseconds>
@@ -55,23 +57,27 @@ void dmd_imshow(Mat im) {
                   INTER_LINEAR, BORDER_CONSTANT, Scalar(255, 255, 255));
   imshow("DMD", warped);
 }
-int capture_from_video(Mat * dst) {
-  usleep(30000);
+long capture_from_video(Mat * dst) {
+  usleep(20000);
+  int t;
   time_idx++;
-  if (time_idx > video.size()) {
+  if (((time_idx-1)/video.size())%2 == 0)
+    t = (time_idx-1)%video.size();
+  else
+    t = (video.size() - 1) - (time_idx-1)%video.size();
+  /*if (time_idx > video.size()) {
     return -1;
-  }
-  cout << "captured " << (time_idx - 1) << endl;
-  *dst = video[time_idx-1];
+    }*/
+  *dst = video[t];
   return 0;
 }
-int capture_from_camera(Mat * dst) {
-  int rc = opencv_firefly_capture(camera, dst);
+long capture_from_camera(Mat * dst) {
+  long rc = opencv_firefly_capture(camera, dst);
   //bitwise_not(*dst, *dst);
 
   return rc;
 }
-int (*cap)(Mat * dst) = *capture_from_video;
+long (*cap)(Mat * dst) = *capture_from_video;
 
 void* capture_input(void*) {
   capturing = true;
@@ -79,7 +85,7 @@ void* capture_input(void*) {
   while(capturing) {
     time = time_milliseconds();
     Mat m;
-    int t = (*cap)(&m);
+    long t = (*cap)(&m);
     if (t < 0) {
       cout << "Capture function signified end of data...exiting" << endl;
       pthread_mutex_lock(&flag_mutex);
@@ -168,10 +174,11 @@ void process_output() {
     if (exposing[i]) {
       color = Scalar(0, 255, 0);
     }
-    Point2f verticies[4];
-    models[i].getBoundingBox().points(verticies);
-    for (int j = 0; j < 4; j++)
-      line(dst2, verticies[j], verticies[(j+1)%4], color, 2);
+    models[i].drawBoundingBox(dst2, color);
+    // Point2f verticies[4];
+    // models[i].getBoundingBox().points(verticies);
+    // for (int j = 0; j < 4; j++)
+    //   line(dst2, verticies[j], verticies[(j+1)%4], color, 2);
     t = time_milliseconds() - t;
     //printf("%lu milliseconds to draw models for Tracking window\n", t);
   }
@@ -181,6 +188,7 @@ void process_output() {
   t = time_milliseconds();
   dmd_imshow(dst);
   imshow("Tracking", dst2);
+  waitKey(1);
   t = time_milliseconds() - t;
   //printf("%lu milliseconds to display images\n", t);
 }
@@ -226,7 +234,7 @@ void* process_input(void*) {
     if (new_frame_copy) {
 
       pthread_mutex_lock(&models_mutex);
-      updateModels(frame.clone(), &models, minArea, maxArea, timestamp);
+      updateModels(frame.clone(), &models, minArea, maxArea, false, timestamp);
       t2 = time_milliseconds();
       imshow("Camera", frame);
       if (outputting_copy) {
@@ -243,6 +251,10 @@ void* process_input(void*) {
         pthread_mutex_lock(&frame_count_mutex);
         frame_count++;
         pthread_mutex_unlock(&frame_count_mutex);
+        
+      }
+      if (writing_hq && outputting_copy) {
+        save_frame_safe(frame, video_hq_prefix, ".png");
       }
       t3 = time_milliseconds() - t3;
       t = time_milliseconds() - t;
@@ -263,7 +275,7 @@ int main(int argc, char* argv[]) {
   Model::init();
   bool using_camera = false, input_given = false, exposure_given = false;
   bool writing_data = false;
-  char * output_file, *data_file;
+  char *data_file;
   int  dmd_x = 39, dmd_y = 1400;
   dmd_w = 608;
   dmd_h = 662;
@@ -279,10 +291,18 @@ int main(int argc, char* argv[]) {
       firefly_setup_camera(f, &camera);
       firefly_start_transmission(camera);
       input_given = true;
-    } else if (strncmp(argv[i], "--write-video", 10) == 0) {
+    } else if (strncmp(argv[i], "--write-video", 15) == 0) {
       writing = true;
       output_file_prefix = argv[i+1];
       output_file_suffix = ".mp4";
+      i++;
+    } else if (strncmp(argv[i], "--write-video-hq", 20) == 0) {
+      writing_hq = true;
+      output_folder = argv[i+1];
+      mkdir(output_folder, 0755);
+      sprintf(video_hq_prefix, "%s/frame", output_folder);
+      cout << video_hq_prefix << endl;
+      cout << "WRITING_HQ" << endl;
       i++;
     } else if (strncmp(argv[i], "--write-data", 10) == 0) {
       writing_data = true;
@@ -341,7 +361,7 @@ int main(int argc, char* argv[]) {
     strftime(buff,80,"tracking_output-%m-%d-%Y-%H:%M", timeinfo);
     data_file = buff;
   }
-  if (!writing) {
+  if (!writing && !writing_hq) {
     cout << "Are you sure you don't want to save a video? (y/n): " << endl;
     char rsp;
     cin >> rsp;
@@ -388,12 +408,16 @@ int main(int argc, char* argv[]) {
     for (int i = 0; i < num_points; i++) {
       src_in >> x >> y;
       src_pts[i] = Point2f(x, y);
+      cout << x << " " << y << " ";
     }
+    cout << endl;
     for (int i = 0; i < num_points; i++) {
       dst_in >> x >> y;
       dst_pts[i] = Point2f(x, y);
+      cout << x << " " << y << " ";
     }
     warp_mat = getPerspectiveTransform(dst_pts, src_pts);
+
     Mat checkerboard(dmd_size, CV_8UC3, Scalar(255, 255, 255));
     Size square(dmd_size.width/4, dmd_size.height/4);
     for (int i = 0; i < 4; i += 1) {
@@ -404,10 +428,8 @@ int main(int argc, char* argv[]) {
         }
       }
     }
-    Mat warped(dmd_size, CV_8UC3);
-    warpPerspective(checkerboard, warped, warp_mat, warped.size(),
-                    INTER_LINEAR, BORDER_CONSTANT, Scalar(255, 255, 255));
-    dmd_imshow(warped);
+    imwrite("checkers.png", checkerboard);
+    dmd_imshow(checkerboard);
 
     cout << "Press 'y' to use the saved transform" << endl;
     namedWindow("Saved Transform", CV_WINDOW_AUTOSIZE);
@@ -457,7 +479,7 @@ int main(int argc, char* argv[]) {
     Mat tmp = Mat::zeros(frame0.size(), frame0.type());
     for (int i = 0; i < models.size(); i++) {
       models[i].drawContour(tmp, 0);
-      models[i].drawBoundingBox(tmp, 0, Scalar(255, 0, 0));
+      models[i].drawBoundingBox(tmp, Scalar(255, 0, 0), 0);
     }
     namedWindow("Models", CV_WINDOW_AUTOSIZE);
     imshow("Models", tmp);
@@ -529,14 +551,16 @@ int main(int argc, char* argv[]) {
   if (writing) {
     new_file(0);
   }
-  
   kill_proccessing = false;
   outputting = true;
   pthread_create(&proc_thread, NULL, process_input, NULL);
-  cout << "restarted processing" << endl;
+  cout << "restarted processing " << capturing << endl;
   /* WAIT FOR CAPTURIG TO FINISH */
   while(capturing) {
-    if (waitKey(0) == 'x') capturing = false;
+    if (waitKey(0) == 'x') {
+      cout << "Got x" << endl;
+      capturing = false;
+    }
   }
   rc = pthread_join(cap_thread, &status);
   if (rc) { 

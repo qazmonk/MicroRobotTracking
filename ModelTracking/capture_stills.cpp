@@ -44,7 +44,7 @@ int main(int argc, char* argv[]) {
   Mat frame, dst;
   namedWindow("Camera", CV_WINDOW_AUTOSIZE);
   while (true) {
-    int rc = capture_from_camera(&frame);
+    capture_from_camera(&frame);
     imshow("Camera", frame);
     if (waitKey(1000/60) == ' ') {
       save_frame(frame);

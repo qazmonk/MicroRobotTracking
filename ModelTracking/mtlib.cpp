@@ -15,7 +15,8 @@
 #include "ttmath/ttmath.h"
 #include <string>
 #include <time.h>
-
+#include <queue>
+#include <set>
 #define PI 3.14159265
 
 using namespace cv;
@@ -29,14 +30,12 @@ int mtlib::Model::count = 0;
 void mtlib::Model::init() {
   count = 0;
 }
-bool mtlib::captureVideo(char* src, vector<Mat> * dst, int* fps, Size* s, int* ex) 
-{
+bool mtlib::captureVideo(char* src, vector<Mat> * dst, int* fps, Size* s, int* ex, 
+                         int num_frames) {
   VideoCapture cap(src);
   *fps = cap.get(CV_CAP_PROP_FPS);
   *s = Size((int) cap.get(CV_CAP_PROP_FRAME_WIDTH),   
             (int) cap.get(CV_CAP_PROP_FRAME_HEIGHT));
-  
-  cout << cap.get(CV_CAP_PROP_FOURCC) << endl;
   *ex = static_cast<int>(cap.get(CV_CAP_PROP_FOURCC));
   
   if (!cap.isOpened()) 
@@ -44,18 +43,24 @@ bool mtlib::captureVideo(char* src, vector<Mat> * dst, int* fps, Size* s, int* e
     cout << "cannot open the video file" << endl;
     return false;
   }
-  
-  while (1) {
-
-    
-    Mat frame;
-
-    bool bSucess = cap.read(frame);
-
-    if (!bSucess) {
-      return true;
+  if (num_frames == -1) {
+    while (1) {
+      Mat frame;
+      bool bSucess = cap.read(frame);
+      if (!bSucess) {
+        return true;
+      }
+      dst->push_back(frame);
     }
-    dst->push_back(frame);
+  } else {
+    for (int i = 0; i < num_frames; i++) {
+      Mat frame;
+      bool bSucess = cap.read(frame);
+      if (!bSucess) {
+        return true;
+      }
+      dst->push_back(frame);
+    }
   }
   return true;
 }
@@ -126,6 +131,14 @@ void mtlib::Model::write_data(ofstream * strm) {
           << ", " << timestamp << endl;
   }
 }
+string mtlib::Model::get_info_string(int t) {
+  char buff[100];
+  sprintf(buff, "ID: %d POS: [%d, %d] ROT: %f TIME: %lu FOUND: %s COST: %f",
+          id, getCenter(t).x, getCenter(t).y, getRotation(t), getTimestamp(t),
+          getFoundFlag(t) ? "true" : "false", getCost(t));
+  string out = buff;
+  return out;
+}
 mtlib::Model::Model(Point init_center, RotatedRect init_bounding, double a,
                     vector<Point> cont, unsigned long timestamp) {
   id = count;
@@ -147,9 +160,10 @@ mtlib::Model::Model(Point init_center, RotatedRect init_bounding, double a,
   contours.push_back(cont);
   foundFlags.push_back(false);
   timestamps.push_back(timestamp);
+  costs.push_back(0);
   Rect bounding = boundingRect(cont);
-  w = bounding.width;
-  h = bounding.height;
+  w = sqrt(bounding.width*bounding.width + bounding.height*bounding.height);
+  h = w;
   //vector for finding the top left corner of the object
   centerToCorner = Point(-w/2, -h/2);
 
@@ -185,6 +199,10 @@ unsigned long mtlib::Model::getTimestamp(int t) {
   if (t < 0) { return timestamps.back(); }
   return timestamps[t];
 }
+double  mtlib::Model::getCost(int t) {
+  if (t < 0) { return costs.back(); }
+  return costs[t];
+}
 double angleDist(double a1, double a2) {
   double d = abs(a1-a2);
   if (d > 180) {
@@ -192,8 +210,7 @@ double angleDist(double a1, double a2) {
   }
   return d;
 }
-double mtlib::Model::getContourRot(vector<Point> cont, Point c) {
-  cout << cont.size() << endl;
+Point2d mtlib::Model::getContourRot(vector<Point> cont, Point c) {
   double rot = getRotation(), min_cost = -1;
   vector<double> sig = getRotSignal(cont, c), all_costs, min_costs;
   vector<int> angles, all_angles;
@@ -204,7 +221,6 @@ double mtlib::Model::getContourRot(vector<Point> cont, Point c) {
       double del = sig[(o+i+prev_off+360)%360]-oSig[i];
       cost += del*del;
     }
-    //cout << "ang: " << (360 - ((o+prev_off+360)%360))%360 << " cost: "  << cost << endl;
     all_costs.push_back(cost);
     all_angles.push_back((360-(o+prev_off+360)%360)%360);
     if (min_cost < 0 || cost < min_cost) min_cost = cost;
@@ -216,16 +232,18 @@ double mtlib::Model::getContourRot(vector<Point> cont, Point c) {
       angles.push_back(all_angles[i]);
     }
   }
-  if (angles.size() <= 0) return rot;
-  double best_angle= angles[0];
+  if (angles.size() <= 0) return Point2d(rot, -1);
+  double best_angle= angles[0], best_cost = min_costs[0];
   for (int i = 0; i < min_costs.size(); i++) {
     double angle = angles[i];
-    //cout << angle << " " << min_costs[i] << endl;
+    cout << angle << " " << min_costs[i] << endl;
     if (angleDist(angle, rot) < angleDist(best_angle, rot)) {
       best_angle = angle;
+      best_cost = min_costs[i];
     }
   }
-  return best_angle;
+  Point2d pt(best_angle, sqrt(best_cost));
+  return pt;
 }
 double mtlib::Model::getRotation(int t) {
   if (t < 0) { return rotations.back(); }
@@ -282,6 +300,8 @@ Rect mtlib::Model::getSearchArea(cv::Mat frame) {
   bottomRight = moveInside(bottomRight, frame.size());
 
   Rect box(newCorner, bottomRight);
+
+  cout << newCorner << " " << bottomRight << " " << Size(nw, nh) << endl;
   return box;
 }
 
@@ -289,15 +309,15 @@ int mtlib::Model::curTime() {
   return centers.size() - 1;
 }
 void mtlib::Model::update(Point center, double rotation, vector<double> rotSig,
-                          vector<Point> cont, bool found, unsigned long timestamp) {
+                          vector<Point> cont, bool found, unsigned long timestamp,
+                          double cost) {
   centers.push_back(center);
   rotations.push_back(rotation);
   rotSigs.push_back(rotSig);
   contours.push_back(cont);
   foundFlags.push_back(found);
   timestamps.push_back(timestamp);
-  cout << "Updated " <<  id << " to " << center << ", rotation " << " at time " 
-       << curTime() << endl;
+  costs.push_back(cost);
 }
 
 
@@ -305,7 +325,7 @@ RotatedRect mtlib::Model::getBoundingBox(int t) {
   double rotate = getRotation(t);
   return RotatedRect(getCenter(t), bounding.size, bounding.angle-rotate);
 }
-void mtlib::Model::drawBoundingBox(Mat frame, int t, Scalar c) {
+void mtlib::Model::drawBoundingBox(Mat frame, Scalar c, int t) {
   Point2f verticies[4];
   getBoundingBox(t).points(verticies);
 
@@ -385,7 +405,7 @@ void select_mask_draw(mtlib::Model* m, Mat frame) {
   cout << "drawing model" << endl;
   m->drawContour(frame, 0);
   m->drawMask(frame, 0);
-  m->drawBoundingBox(frame, 0, Scalar(0, 0, 255));
+  m->drawBoundingBox(frame, Scalar(0, 0, 255), 0);
 }
 void select_mask_click(mtlib::Model* m) {
   cout << "clicked on model" << endl;
@@ -397,7 +417,7 @@ void mtlib::selectMasks(Mat frame, vector<Model> * models) {
 void select_exposure_draw(mtlib::Model* m, Mat frame) {
   m->drawContour(frame, 0, Scalar(255, 0, 0));
   m->drawExposure(frame, 0);
-  m->drawBoundingBox(frame, 0, Scalar(0, 0, 255));
+  m->drawBoundingBox(frame, Scalar(0, 0, 255), 0);
 }
 void select_exposure_click(mtlib::Model* m) {
   m->nextExposure();
@@ -500,6 +520,492 @@ void mtlib::filter(Mat& dst, Mat frame) {
     //blur(t2, t, Size(5, 5));
   }
 }
+struct hole_node {
+  int x;
+  int y;
+  int r;
+  int c;
+  int width;
+  int d;
+  int id;
+  vector<hole_node*> children;
+  vector<hole_node*> neighbors;
+  int size;
+  hole_node(int x, int y, int r, int c,
+            int step, int d)
+    : x(x), y(y), r(r), c(c), d(d) {
+    id = c + r*step;
+  };
+  bool operator==(const hole_node &o) const
+  {
+    return (o.x == x && o.y == y);
+  }
+};
+struct hole_node_edge {
+  hole_node *u, *v;
+  int x1, x2, y1, y2;
+  hole_node_edge(hole_node *u, hole_node *v) 
+    : u(u), v(v) {
+    x1 = u->x;
+    y1 = u->y;
+    x2 = v->x;
+    y2 = v->y;
+  };
+  bool operator==(const hole_node_edge &o) const {
+    return (x1 == o.x1 && x2 == o.x2 && y1 == o.y1 && y2 == o.y2);
+  }
+};
+struct hole_node_edge_hash {
+  std::size_t operator() (hole_node_edge key) const {
+    size_t max_hash = -1;
+    size_t return_vaule = (size_t)(((key.u->id
+                                     ^ (key.v->id << 1)) >> 1)%(max_hash));
+    return return_vaule;
+
+  }
+};
+struct hole_node_hash {
+  std::size_t operator() (hole_node* key) const {
+    size_t max_hash = -1;
+    return (size_t)((key->id)%(max_hash));
+  }
+};
+struct hole_node_eq {
+  bool operator() (hole_node* n1, hole_node* n2) const {
+    return n1->id == n2->id;
+  }
+};
+bool cmp_hole_node(hole_node* n1, hole_node* n2) {
+  return n1->id > n2->id;
+}
+typedef unordered_map<hole_node_edge, int, hole_node_edge_hash> edge_hashmap;
+typedef unordered_map<hole_node*, hole_node*, hole_node_hash, hole_node_eq> vertex_hashmap;
+typedef pair<int, int> pixel;
+typedef hole_node*** graph;
+
+void update_sizes(hole_node* root) {
+  int sum = 0;
+  for (int i = 0; i < root->children.size(); i++) {
+    update_sizes(root->children[i]);
+    sum += root->children[i]->size;
+  }
+  root->size = sum + root->children.size();
+}
+
+bool residual_path(hole_node* s, hole_node* t, int rows, int cols,
+                   edge_hashmap * c, edge_hashmap * f, vertex_hashmap *parents) {
+  queue<hole_node*> q;
+  q.push(s);
+  bool discovered[rows][cols], discovered_end = false;
+  for (int r = 0; r < rows; r++) {
+    for (int c = 0; c < cols; c++) {
+      discovered[r][c] = false;
+    }
+  }
+  while (q.size() > 0 && !discovered_end) {
+    hole_node * u = q.front();
+    q.pop();
+    for (int i = 0; i < u->neighbors.size(); i++) {
+      int flow = f->find(hole_node_edge(u, u->neighbors[i]))->second;
+      int cap = (c->find(hole_node_edge(u, u->neighbors[i])))->second;
+      int cf = cap - flow;
+      bool d = false;
+      int node_type = 0;
+      if (u->neighbors[i]->id >= 0) 
+        d = discovered[u->neighbors[i]->r][u->neighbors[i]->c];
+      else if (u->neighbors[i] == s) {
+        d = true;
+        node_type = 1;
+      }
+      else if (u->neighbors[i] == t) {
+        d = false;
+        node_type = 2;
+      }
+      if (cf > 0 && !d) {
+        q.push(u->neighbors[i]);
+        parents->insert(pair<hole_node*,hole_node*>(u->neighbors[i], u));
+        switch (node_type) {
+        case 0:
+          discovered[u->neighbors[i]->r][u->neighbors[i]->c] = true;
+          break;
+        case 1:
+          break;
+        case 2:
+          discovered_end = true;
+        default:
+          break;
+        }
+      }
+    }
+  }
+  return discovered_end;
+}
+vector<hole_node*> residual_reachable(hole_node* s, edge_hashmap * c,
+                                      edge_hashmap * f, int rows, int cols) {
+  queue<hole_node*> q;
+  bool discovered[rows][cols];
+  for (int r = 0; r < rows; r++) {
+    for (int c = 0; c < cols; c++) {
+      discovered[r][c] = false;
+    }
+  }
+  q.push(s);
+  discovered[s->r][s->c] = true;
+  vector<hole_node*> partition;
+  while (q.size() > 0) {
+    hole_node * u = q.front();
+    q.pop();
+    for (int i = 0; i < u->neighbors.size(); i++) {
+      int flow = (f->find(hole_node_edge(u, u->neighbors[i])))->second;
+      int cap = (c->find(hole_node_edge(u, u->neighbors[i])))->second;
+      int cf = cap - flow;
+      if (cf > 0 && discovered[u->neighbors[i]->r][u->neighbors[i]->c] == false) {
+        q.push(u->neighbors[i]);
+        discovered[u->neighbors[i]->r][u->neighbors[i]->c] = true;;
+      }
+    }
+    partition.push_back(u);
+  }
+  return partition;
+}
+vector<hole_node*> min_cut(vector<hole_node*> srcs, vector<hole_node*> tgts, 
+                           hole_node** graph, int rows, int cols) {
+  //cout << "making edges" << endl;
+  edge_hashmap f, cap;
+  vertex_hashmap p;
+  for (int r = 0; r < rows; r++) {
+    for (int c = 0; c < cols; c++) {
+      hole_node* cur = graph[r*cols + c];
+      if (cur != NULL) {
+        int size = graph[r*cols + c]->neighbors.size();
+        for (int i = 0; i < size; i++) {
+          hole_node_edge e(cur, cur->neighbors[i]);
+          pair<hole_node_edge, int> tmp1(e, 0);
+          pair<hole_node_edge, int> tmp2(e, 1);
+          f.insert(tmp1);
+          cap.insert(tmp2);
+        }
+      }
+    }
+  }
+
+  //cout << "making new vertices" << endl;
+  hole_node * s = new hole_node(-1, -1, -1, -1, 0, -1);
+  hole_node * t = new hole_node(-1, -2, -1, -2, 0, -1);
+  s->id = -1;
+  t->id = -2;
+  //cout << "adding src edges" << endl;
+  for (int i = 0; i < srcs.size(); i++) {
+    hole_node_edge fwd(s, srcs[i]);
+    hole_node_edge bak(srcs[i], s);
+    s->neighbors.push_back(srcs[i]);
+    srcs[i]->neighbors.push_back(s);
+    f.insert(pair<hole_node_edge, int>(fwd, 0));
+    f.insert(pair<hole_node_edge, int>(bak, 0));
+    cap.insert(pair<hole_node_edge, int>(fwd, 8));
+    cap.insert(pair<hole_node_edge, int>(bak, 0));
+  }
+  //cout << "adding tgt edges" << endl;
+  for (int i = 0; i < tgts.size(); i++) {
+    hole_node_edge fwd(t, tgts[i]);
+    hole_node_edge bak(tgts[i], t);
+    t->neighbors.push_back(tgts[i]);
+    tgts[i]->neighbors.push_back(t);
+    f.insert(pair<hole_node_edge, int>(fwd, 0));
+    f.insert(pair<hole_node_edge, int>(bak, 0));
+    cap.insert(pair<hole_node_edge, int>(fwd, 0));
+    cap.insert(pair<hole_node_edge, int>(bak, 8));
+  }
+  //cout << "done construction graph" << endl;
+  //cout << "running main loop" << endl;
+  while (residual_path(s, t, rows, cols, &cap, &f, &p)) {
+    //cout << "found path " << p.size() << endl;
+    vertex_hashmap::const_iterator cur_it = p.find(t);
+    while (cur_it != p.end()) {
+      hole_node * u = cur_it->first;
+      hole_node * v = cur_it->second;
+      int fwd_flow = (f.find(hole_node_edge(u, v)))->second;
+      int bck_flow = (f.find(hole_node_edge(v, u)))->second;
+      f[hole_node_edge(v, u)] = fwd_flow + 1;
+      f[hole_node_edge(u, v)] = bck_flow - 1;
+      cur_it = p.find(cur_it->second);
+    }
+    p.clear();
+  }
+  //cout << "computing cut" << endl;
+  vector<hole_node*> cut = residual_reachable(s, &cap, &f, rows, cols);
+  return cut;
+}
+vector<hole_node*> find_interior(hole_node* root, int prev_width=0) {
+  vector<hole_node*> interior;
+  if (root->width >= prev_width) {
+    for (int i = 0; i < root->children.size(); i++) {
+      vector<hole_node*> tmp = find_interior(root->children[i], root->width);
+      for (int j = 0; j < tmp.size(); j++) {
+        interior.push_back(tmp[j]);
+      }
+    }
+  } else {
+    interior.push_back(root);
+  }
+  return interior;  
+}
+vector<hole_node*> find_exterior(hole_node** graph, Rect bounding_box) {
+  vector<hole_node*> exterior;
+  for (int r = 0; r < bounding_box.height; r += bounding_box.height-1) {
+    for (int c = 0; c < bounding_box.width; c++) {
+      hole_node * cur = graph[r*bounding_box.width + c];
+      if (cur != NULL) {
+        exterior.push_back(cur);
+      }
+    }
+  }
+  for (int r = 0; r < bounding_box.height; r++) {
+    for (int c = 0; c < bounding_box.width; c += bounding_box.width-1) {
+      hole_node * cur = graph[r*bounding_box.width + c];
+      if (cur != NULL) {
+        exterior.push_back(cur);
+      }
+    }
+  }
+
+  // if (!bounding_box.contains(Point(root->x, root->y))) {
+  //   exterior.push_back(root);
+  // } else {
+  //   for (int i = 0; i < root->children.size(); i++) {
+  //     vector<hole_node*> tmp = find_exterior(root->children[i], bounding_box);
+  //     for (int j = 0; j < tmp.size(); j++) {
+  //       exterior.push_back(tmp[j]);
+  //     }
+  //   }
+  // }
+  return exterior;  
+}
+vector<hole_node*> find_cut_edge(vector<hole_node*>* cut, hole_node ** graph,
+                                 int rows, int cols) {
+  int type[rows][cols];
+  for (int r = 0; r < rows; r++) {
+    for (int c = 0; c < cols; c++) {
+      if (graph[r*cols+c] != NULL)
+        type[r][c] = 1;
+      else
+        type[r][c] = 0;
+    }
+  }
+  for (int i = 0; i < cut->size(); i++) {
+    type[cut->at(i)->r][cut->at(i)->c] = 2;
+  }
+  vector<hole_node*> edge;
+  for (int r = 0; r < rows-1; r++) {
+    for (int c = 0; c < cols-1; c++) {
+      if (type[r][c] == 2) {
+        for (int rp = r; rp <= r + 1; rp++) {
+          for (int cp = c; cp <= c + 1; cp++) {
+            if ((rp != r || cp != c) && type[rp][cp] == 1) {
+              edge.push_back(graph[rp*cols+cp]);
+              edge.push_back(graph[r*cols+c]);
+            }
+          }
+        }
+      }
+    }
+  }
+  return edge;
+}
+Mat close_holes(Mat frame, Point center, Rect bounding_box) {
+  queue<hole_node*> curq, nextq;
+  hole_node* graph[bounding_box.width*bounding_box.height], *start = NULL;
+  bool discovered[bounding_box.height][bounding_box.width];
+  cout << "making graph" << endl;
+  for (int c = 0; c < bounding_box.width; c++) {
+    for (int r = 0; r < bounding_box.height; r++) {
+      if (frame.at<uchar>(r + bounding_box.tl().y, c + bounding_box.tl().x) == 255)  {
+        graph[r*bounding_box.width + c] = new hole_node(c + bounding_box.tl().x, 
+                                                r + bounding_box.tl().y, 
+                                                r, c,
+                                                bounding_box.width, 0);
+        if (c == center.x - bounding_box.tl().x &&
+            r == center.y - bounding_box.tl().y) {
+          cout << "reached center" << endl;
+          start = graph[r*bounding_box.width + c];
+        }
+      }
+      else {
+        graph[r*bounding_box.width + c] = NULL;
+        if (c == center.x - bounding_box.tl().x &&
+            r == center.y - bounding_box.tl().y) {
+          cout << "given center is invalid" << endl;
+          bool updated= false;
+          for (int rp = r+1; rp < bounding_box.height; rp++) {
+            cout << (frame.at<uchar>(rp + bounding_box.tl().y, c + bounding_box.tl().x) == 255)
+                 << endl;
+            if (frame.at<uchar>(rp + bounding_box.tl().y, c + bounding_box.tl().x) == 255)  {
+              center = Point(c + bounding_box.tl().x, rp + bounding_box.tl().y);
+              updated = true;
+              break;
+            }
+          }
+          if (!updated) return frame;
+        }
+      }
+      discovered[r][c] = false;
+    }
+  }
+
+  start->width = 0;
+  curq.push(start);
+  discovered[start->r][start->c] = true;
+  int max_dst = 0;
+  int max_width = 0;
+  cout << "inital bfs" << endl;
+  while (curq.size() > 0) {
+    hole_node *cur = curq.front();
+    curq.pop();
+    if (cur->d > max_dst) max_dst = cur->d;
+    for (int c = cur->c-1; c <= cur->c + 1; c += 1) {
+      for (int r = cur->r-1; r <= cur->r + 1; r += 1) {
+        //if (abs(c-cur->c) + abs(r-cur->r) < 2) {
+          if (c >= 0 && c < bounding_box.width && r >= 0 && r < bounding_box.height
+              && (c != cur->c || r != cur->r)
+              && frame.at<uchar>(r+bounding_box.tl().y, c+bounding_box.tl().x) == 255)  {
+            hole_node *node = graph[r*bounding_box.width + c];
+            if (discovered[r][c] == false) {
+              nextq.push(node);
+              discovered[r][c] = true;
+              cur->children.push_back(node);
+            }
+            cur->neighbors.push_back(node);
+          }
+          //}
+      }
+    }
+    if (curq.size() == 0 && nextq.size() > 0) {
+      int width = nextq.size();
+      if (width > max_width) max_width = width;
+      while (nextq.size() > 0) {
+        hole_node *hn = nextq.front();
+        nextq.pop();
+        hn->width = width;
+        curq.push(hn);
+      }
+    }
+  }
+  Mat dist = frame.clone();
+  cout << "computing exterior and interior" << endl;
+  vector<hole_node*> interior = find_interior(start);
+  vector<hole_node*> exterior = find_exterior(graph, bounding_box);
+  //cout << interior.size() << endl;
+  //cout << exterior.size() << endl;
+
+  /*Mat tmp(dist.size(), CV_8UC3, Scalar(255, 255, 255));
+  for (int i = 0; i < interior.size(); i++) {
+    hole_node pt = *(interior[i]);
+
+    tmp.at<Vec3b>(pt.y, pt.x) = Vec3b(0, 255, 0);
+  }
+  for (int i = 0; i < exterior.size(); i++) {
+    hole_node pt = *(exterior[i]);
+    tmp.at<Vec3b>(pt.y, pt.x) = Vec3b(0, 0, 255);
+  }
+  for (int i = 0; i < frame.rows; i++) {
+    for (int j = 0; j < frame.cols; j++) {
+      if (frame.at<uchar>(i, j) == 0) 
+        tmp.at<Vec3b>(i, j) = Vec3b(0, 0, 0);
+    }
+  }
+
+
+  namedWindow("close holes", CV_WINDOW_AUTOSIZE);
+  imshow("close holes", tmp);
+  waitKey(0);
+  cout << "computing cut" << endl;*/
+  cout << "computing cut" << endl;
+  vector<hole_node*> cut = min_cut(interior, exterior, graph, 
+                                   bounding_box.height, bounding_box.width);
+  vector<hole_node*> cut_edge = find_cut_edge(&cut, graph, 
+                                              bounding_box.height, bounding_box.width);
+  //cout << cut.size() << endl;
+  //cout << cut_edge.size() << endl;
+  /*for (int i = 0; i < cut.size(); i++) {
+    hole_node pt = *(cut[i]);
+    if (pt.id >= 0)
+      tmp.at<Vec3b>(pt.y, pt.x) = Vec3b(255, 0, 0);
+  }
+  imshow("close holes", tmp);
+  waitKey(0);*/
+  for (int i = 0; i < cut_edge.size(); i++) {
+    hole_node pt = *(cut_edge[i]);
+    dist.at<uchar>(pt.y, pt.x) = (uchar)(0);
+  }
+  /*double scale = 255.0/((double)start->size);
+  cout << scale << " " << start->size << endl;
+  int size = discovered.size(), count = 0;
+  for (set<hole_node*, bool (*)(hole_node*, hole_node*)>::iterator it = discovered.begin();
+       it != discovered.end(); ++it) {
+    hole_node *cur = *it;
+    int value = (int)(scale*((double)(cur->size)));//(int)min(cur->width, 255);
+    dist.at<Vec3b>(cur->y, cur->x) = Vec3b(value, value, value);
+    count++;
+  }*/
+
+  return dist;
+}
+vector<Mat> mtlib::filter_debug(Mat& dst, Mat frame) {
+  int lowThreshold = 75;
+  int ratio = 3;
+  dst.create(frame.rows, frame.cols, CV_8UC1);
+  vector<Mat> output;
+  if (DEF_CHANNEL >= 0 && DEF_CHANNEL < 3) {
+    cout << "removing blue" << endl;
+    vector<Mat> rgb;
+    split(frame, rgb);
+    rgb[DEF_CHANNEL].setTo(0);
+    merge(rgb, frame);
+    output.push_back(frame.clone());
+    Mat gray;
+    cvtColor(frame, gray, CV_BGR2GRAY);
+    Mat gray_color;
+    cvtColor(gray, gray_color, CV_GRAY2BGR);
+    output.push_back(gray_color.clone());
+    cout << "thresholding" << endl;
+    //blur(gray, gray, Size(3, 3));
+    adaptiveThreshold(gray, dst, 255, ADAPTIVE_THRESH_MEAN_C, THRESH_BINARY, 27, 5);
+    Mat dst2;
+    adaptiveThreshold(gray, dst2, 255, ADAPTIVE_THRESH_MEAN_C, THRESH_BINARY_INV, 27, 5);
+    //GaussianBlur(dst, dst, Size(7, 7), 0, 0);
+    Mat dst_color;
+    cout << "eroding" << endl;
+    cvtColor(dst, dst_color, CV_GRAY2BGR);
+    output.push_back(dst_color.clone());
+    cvtColor(dst2, dst_color, CV_GRAY2BGR);
+    output.push_back(dst_color.clone());
+    Mat element = getStructuringElement(MORPH_ELLIPSE, Size(5, 5));
+    erode(dst, dst, element);
+    //dilate(dst, dst, element);
+    /*namedWindow("Select Center", CV_WINDOW_AUTOSIZE);
+    imshow("Select Center", dst);
+    vector<Point> pts;
+    getNPoints(3, "Select Center", &pts, dst);*/
+    //blur(dst, dst, Size(7, 7));
+    threshold(dst, dst, 40, 255, THRESH_BINARY);
+    cout << "closing holes" << endl;
+    Mat closed = close_holes(dst, Point(308, 293), Rect(Point(252, 222), Point(377, 373)));
+    cout << "closed" << endl;
+    Mat closed_color;
+    cvtColor(closed, closed_color, CV_GRAY2BGR);
+    output.push_back(closed_color.clone());
+    return output;
+  } else {
+    cout << "WARNING: using an defuct def_channel" << endl;
+    Mat t1, t2;
+    cvtColor(frame, t1, CV_BGR2GRAY);
+    Canny(t1, t1, lowThreshold, lowThreshold*ratio, 5);
+    adaptiveThreshold(t1, dst, 255, ADAPTIVE_THRESH_MEAN_C, THRESH_BINARY, 27, 5);
+    vector<Mat> tmp;
+    return tmp;
+    //blur(t2, t, Size(5, 5));
+  }
+}
 void mtlib::filterAndFindContours(Mat frame, vector< vector<Point> > * contours, 
                                   Point off)
 {
@@ -507,6 +1013,17 @@ void mtlib::filterAndFindContours(Mat frame, vector< vector<Point> > * contours,
   filter(t, frame);
   vector<Vec4i> h;
   findContours(t, *contours, h, CV_RETR_LIST, CV_CHAIN_APPROX_NONE, off);
+}
+void mtlib::closeHolesAndFindContours(Mat frame, vector< vector<Point> > * contours, 
+                                      Point off, Point center, Rect bb)
+{
+  Mat t;
+  filter(t, frame);
+  Mat t2 = close_holes(t, center, bb);
+  vector<Vec4i> h;
+  Mat t3;
+  bitwise_not(t2, t3);
+  findContours(t3, *contours, h, CV_RETR_LIST, CV_CHAIN_APPROX_NONE, off);
 }
 void mtlib::drawModels(Mat dst, vector<mtlib::Model> models, int t) {
   for (int i = 0; i < models.size(); i++) {
@@ -529,11 +1046,32 @@ void mtlib::drawContoursFast(Mat dst, vector< vector<Point> > * contours,
   }
  
 }
+void mtlib::drawContoursBoxed(Mat dst, vector< vector<Point> > * contours, 
+                             int minArea, int maxArea)
+{
+  //loop through contours filtering out ones that are too small or too big
+  for (int i = 0; i < contours->size(); i++) {
+    double consize = contourArea(contours->at(i));
+    if (consize >= minArea && consize <= maxArea) {
+      vector<Point> contour = contours->at(i);
+      for (int j = 0; j < contour.size(); j++) {
+        circle(dst, contour[j], CONT_THICKNESS/2, Scalar(255, 255, 255));
+
+
+      }
+      Point2f verticies[4];
+      minAreaRect(contour).points(verticies);
+      for (int i = 0; i < 4; i++)
+        line(dst, verticies[i], verticies[(i+1)%4], Scalar(255, 0, 0), 2);
+    }
+  }
+ 
+}
 void mtlib::drawContoursAndFilter(Mat dst, vector< vector<Point> > * contours, 
                                   int minArea, int maxArea)
 {
   Mat contour_drawing = Mat::zeros(dst.size(), dst.type());
-  Scalar color = Scalar(255, 255, 0);
+
   //loop through contours filtering out ones that are too small or too big
   for (int i = 0; i < contours->size(); i++) {
     double consize = contourArea(contours->at(i));
@@ -571,7 +1109,7 @@ double dist(Point p1, Point p2) {
 vector<double> mtlib::getRotSignal(vector<Point> contour, Point center) {
   vector<int> sig_cnt(360, 0);
   vector<double> sig_sum(360, 0.0);
-  int scale = 100;
+
   for (int i = 0; i < contour.size(); i++) {
     int a = (int)(getAngleBetween(contour[i], center));
     double d = dist(contour[i], center);
@@ -630,7 +1168,6 @@ void mtlib::Model::drawModel(Mat dst, int t) {
   double a = rotations[t];
   Point v(std::cos(a*PI/180)*20, -std::sin(a*PI/180)*20);
   Point c = centers[t];
-  cout << "Drawing model at " << c << " at time " << t << endl;
   line(dst, c, c + v,	 Scalar(255, 255, 255));
   circle(dst, c, 4, Scalar(255, 255, 255), -1, 8, 0);
 }
@@ -642,12 +1179,12 @@ void mtlib::Model::drawContour(Mat dst, int t, Scalar color) {
 }
 void mtlib::Model::drawMask(Mat dst, int t) {
   Point c  = getCenter(t);
-  Point2f c2f = c;
+
   RotatedRect rr = getBoundingBox(t);
   double a = rr.angle;
   Point2f ihat(std::cos(a*PI/180), -std::sin(-a*PI/180));
   Point2f jhat(-ihat.y, ihat.x);
-  Size2f quad = Size2f(rr.size.width/2, rr.size.height/2);
+
   vector<Point> cont = getContour(t);
   cout << "Drawing mask " << mask << " on model " << id << endl;
   switch(mask) {
@@ -769,6 +1306,8 @@ void mtlib::Model::drawExposure(Mat dst, int t) {
         jdir = -1;
         break;
       default:
+        idir = 0;
+        jdir = 0;
         cout << "Somehow reached the quad branch mistakenly" << endl;
         break;
       }
@@ -813,6 +1352,8 @@ void mtlib::Model::drawExposure(Mat dst, int t) {
         rect_size = half_height;
         break;
       default:
+        idir = 0;
+        jdir = 0;
         cout << "Somehow reached half plane branch accidentally" << endl;
       }
       Point2f cp = c2f+(idir*ihat*rect_size.width+jdir*jhat*rect_size.height)*0.5;
@@ -844,7 +1385,7 @@ void mtlib::generateModels(Mat frame, vector<Model> * models, int minArea, int m
     if (consize > minArea && consize < maxArea) {
       //create model and push it onto the vector
       cout << "creating model..." << flush;
-      Rect t = boundingRect(contours[i]);
+
       Point c = getCenter(contours[i]);
       vector<double> sig = getRotSignal(contours[i], c);
       RotatedRect rr = minAreaRect(contours[i]);
@@ -861,70 +1402,154 @@ unsigned long time_milli() {
   return chrono::duration_cast<chrono::milliseconds>
     (chrono::system_clock::now().time_since_epoch()).count();
 }
+Rect combine_rectangles(Rect r1, Rect r2) {
+  Point tl(min(r1.tl().x, r2.tl().x), min(r1.tl().y, r2.tl().y));
+  Point br(max(r1.br().x, r2.br().x), max(r1.br().y, r2.br().y));
+  return Rect(tl, br);
+}
+Rect resize_rectangle(Rect r, double scale, Point tl, Point br) {
+  int nw = r.width*scale, nh = r.width*scale;
+  Point shift((nw-r.width)/2, (nh-r.height)/2);
+  Point ntl = r.tl() - shift;
+  if (ntl.x < tl.x) ntl.x = tl.x;
+  if (ntl.y < tl.y) ntl.y = tl.y;
+  Point nbr = r.br() + shift;
+  if (nbr.x >= br.x) ntl.x = br.x-1;
+  if (ntl.y >= br.y) ntl.y = br.y-1;
+
+  return Rect(r.tl() - shift, r.br() + shift);
+}
+int best_contour_index(vector< vector<Point> > contours, mtlib::Model * m, 
+                       int minArea, int maxArea) {
+  int bestCont = 0, area_diff = abs(contourArea(contours[0]) - m->getArea());
+  bool foundObject = false;
+  for (int n = 0; n < contours.size(); n++) {
+    double consize = contourArea(contours[n]);
+
+    int consize_diff = abs(consize - m->getArea());
+    if (consize > minArea && consize < maxArea && consize_diff <= area_diff) {
+      foundObject = true;
+      bestCont = n;
+      area_diff = consize_diff;
+    }
+  }
+  if (!foundObject) return -1;
+  return bestCont;
+}
+
 void mtlib::updateModels(Mat frame, vector<Model> * models, int minArea, int maxArea,
-                         unsigned long timestamp) {
+                         bool close_holes, unsigned long timestamp) {
   //loop through models
   Mat out = Mat::zeros(frame.size(), frame.type());
   //namedWindow("Searching", CV_WINDOW_AUTOSIZE);
   unsigned long t = time_milli();
 
-  
-  for (int i = 0; i < models->size(); i++) {
-    cout << "updating model " << i << endl;
+  for (int n = 0; n < models->size(); n++) {
+    cout << "Updating model " << n << " with area " << models->at(n).getArea() << endl;
     //Get part of image in search area
-    Rect searchArea = models->at(i).getSearchArea(frame);
+    Rect searchArea = models->at(n).getSearchArea(frame);
     Mat roi(frame.clone(), searchArea);
     //do contour finding and filtering
-    vector< vector<Point> > contours;
+    vector< vector<Point> > contours, tmp;
     filterAndFindContours(roi, &contours, searchArea.tl());
-    if (contours.size() > 0) {
-      int bestCont = 0, area_diff = abs(contourArea(contours[0]) - models->at(i).getArea());
-      bool foundObject = false;
-      for (int n = 0; n < contours.size(); n++) {
-        double consize = contourArea(contours[n]);
-        double consize_diff = abs(consize - models->at(i).getArea());
-        if (consize > minArea && consize < maxArea && consize_diff <= area_diff) {
-	
-          foundObject = true;
-          bestCont = n;
-          area_diff = consize_diff;
-        }
+    
+    for (int i = 0; i < contours.size(); i++) {
+      double consize = contourArea(contours[i]);
+      if (consize >= minArea  && consize <= maxArea) {
+        tmp.push_back(contours[i]);
       }
-      double err = ((double)area_diff)/models->at(i).getArea();
-      if (err > 0.3) foundObject = false;
+    }
+    contours = tmp;
+    if (contours.size() > 0) {
+      bool foundObject = true;
+      int bestCont = best_contour_index(contours, &(models->at(n)), minArea, maxArea);
+      if (bestCont < 0) foundObject = false;
+      double err = ((double)(abs(contourArea(contours[bestCont])-models->at(n).getArea())))
+                    /models->at(n).getArea();
+      if (close_holes && err > 0.5) {
+        cout << "Model not found, attempting to close holes. Error: " << err << endl;
+        // cout << "sorting " << contours.size() << " contours" << endl;
+        // for (int i = 0; i < contours.size(); i++) {
+        //   for (int j = 0; j < contours.size()-1; j++) {
+        //     if (contourArea(contours[j]) < contourArea(contours[j+1])) {
+        //       vector<Point> tmp = contours[j+1];
+        //       contours[j+1] = contours[j];
+        //       contours[j] = tmp;
+        //     }
+        //   }
+        // }
+        // cout << "done sorting" << endl;
+        // Rect bounding_box = boundingRect(contours[0]);
+        // double area_sum = contourArea(contours[0]);
+        // Point center = area_sum*getCenter(contours[0]);
+        // cout << "finding bounding box" << endl;
+        // for (int i = 1; i < contours.size(); i++) {
+        //   double err = ((double)(abs(contourArea(contours[i])-models->at(n).getArea())))
+        //     /models->at(n).getArea();          
+        //   if (err > 0.1) {
+        //     bounding_box = combine_rectangles(bounding_box, boundingRect(contours[i]));
+        //     double consize = contourArea(contours[i]);
+        //     Point c = getCenter(contours[i]);
+        //     center = center + Point(c.x*consize, c.y*consize);
+        //     area_sum += consize;
+        //   }
+        // }
+        // center = Point(center.x/area_sum, center.y/area_sum);
+        // bounding_box = resize_rectangle(bounding_box, 1.1, searchArea.tl(), searchArea.br());
+        Rect bounding_box = resize_rectangle(searchArea, 0.8, searchArea.tl(), searchArea.br());
+        Point center = models->at(n).getCenter() - searchArea.tl();
+        bounding_box = Rect(bounding_box.tl() - searchArea.tl(), bounding_box.size());
+        contours.clear();
+        cout << "closing " << roi.size() << " " << center << " " << bounding_box << endl;
+        closeHolesAndFindContours(roi, &contours, searchArea.tl(), center,
+                                  bounding_box);
+        bestCont = best_contour_index(contours, &(models->at(n)), minArea, maxArea);
+      }
+      Point2d rot_info;
+      Point c;
+      if (foundObject) {
+        c = getCenter(contours[bestCont]);
+        rot_info = models->at(n).getContourRot(contours[bestCont], c);
+        cout << "Angle: " << rot_info.x << " Cost: " << rot_info.y << endl;
+        //if (rot_info.y > 1000) foundObject = false;
+      }
+
       cout << "Found object: " << std::boolalpha << foundObject << endl;
       //if the object was found generate new center and orientation data
       //othrewise assume it hasn't moved
-      Point c;
-      double a, ap;
+
+      double a, cost;
       vector<double> r;
       vector<Point> cont;
+      
       if (foundObject) {
-        cout << "err = " << err << endl;
-        c = getCenter(contours[bestCont]);
+
         r = getRotSignal(contours[bestCont], c);
         //showHist("Histogram", sig);
         //ap = getRotation(models->at(i), roi_cont, 45);
-        a = models->at(i).getContourRot(contours[bestCont], c);
+
+        a = rot_info.x;
+        cost = rot_info.y;
         //cout << ap << ", " << a << endl;
         cont = contours[bestCont];
       } else {
-        cout << "found no contours" << endl;
-        c = models->at(i).getCenter();
-        a = models->at(i).getRotation();
-        r = models->at(i).getRotationSignal();
-        cont = models->at(i).getContour();
+        c = models->at(n).getCenter();
+        a = models->at(n).getRotation();
+        r = models->at(n).getRotationSignal();
+        cont = models->at(n).getContour();
+        cost = -1;
       }
       //circle(frame, c, 4, Scalar(255, 0, 0), -1, 8, 0);
       //imshow("Found", frame);
       //waitKey(0);
-      models->at(i).update(c, a, r, cont, foundObject, timestamp);
+      models->at(n).update(c, a, r, cont, foundObject, timestamp, cost);
     } else {
-      Point c = models->at(i).getCenter();
-      double a = models->at(i).getRotation();
-      vector<double> r = models->at(i).getRotationSignal();
-      vector<Point> cont = models->at(i).getContour();
-      models->at(i).update(c, a, r, cont, false, timestamp); 
+      cout << "Found no contours" << endl;
+      Point c = models->at(n).getCenter();
+      double a = models->at(n).getRotation();
+      vector<double> r = models->at(n).getRotationSignal();
+      vector<Point> cont = models->at(n).getContour();
+      models->at(n).update(c, a, r, cont, false, timestamp, -1); 
     }
   }
   t = time_milli() - t;
@@ -1034,7 +1659,7 @@ void select_object_draw(mtlib::Model* m, Mat frame) {
     color = Scalar(0, 255, 0);
   }
   m->drawContour(frame, 0);
-  m->drawBoundingBox(frame, 0, color);
+  m->drawBoundingBox(frame, color, 0);
 }
 void select_object_click(mtlib::Model* m) {
   int idx = select_object_get_index(*m);
@@ -1210,7 +1835,7 @@ Point2f get_light_center(Mat frame, int thresh) {
   }
   return Point2f(tot.x/cnt, tot.y/cnt);
 }
-vector<Point2f> mtlib::autoCalibrate(int (*capture)(Mat*), string dmd_window, Size dmd_size) {
+vector<Point2f> mtlib::autoCalibrate(long (*capture)(Mat*), string dmd_window, Size dmd_size) {
   Point2f src_pts[] = { Point2f(dmd_size.width*0.2, dmd_size.height*0.2),
                       Point2f(dmd_size.width*0.2, dmd_size.height*0.8),
                       Point2f(dmd_size.width*0.8, dmd_size.height*0.2),
@@ -1409,7 +2034,7 @@ void mtlib::combineHorizontal(cv::Mat &dst, cv::Mat img1, cv::Mat img2) {
 void mtlib::combineVertical(cv::Mat &dst, cv::Mat img1, cv::Mat img2) {
   int rows = img1.rows + img2.rows;
   int cols = max(img1.cols,img2.cols);
-  
+
   dst.create(rows, cols, img1.type());
   dst.setTo(Scalar(0, 0, 0));
   cv::Mat tmp = dst(cv::Rect(0, 0, img1.cols, img1.rows));
@@ -1742,11 +2367,11 @@ void mtlib::setPolarEdges(cv::Mat polar, Point cent) {
   }
 }
 
-inline bool mtlib::file_exists(const string name) {
+bool mtlib::file_exists(const std::string name) {
   struct stat buffer;
   return (stat (name.c_str(), &buffer) == 0);
 }
-string mtlib::safe_filename(char * prefix, char * suffix) {
+string mtlib::safe_filename(char * prefix, const char * suffix) {
   int count = 0;
   char buffer[100];
   sprintf(buffer, "%s-%.4d%s", prefix, count, suffix);
@@ -1759,10 +2384,10 @@ string mtlib::safe_filename(char * prefix, char * suffix) {
 void mtlib::save_frame_safe(Mat frame, const char * filename, const char * suffix) {
   int count = 0;
   char buffer [100];
-  sprintf(buffer, "%s-%.4d%s", filename, count, suffix);
+  sprintf(buffer, "%s-%.6d%s", filename, count, suffix);
   while (file_exists(buffer)) {
     count++;
-    sprintf(buffer, "%s%.4d%s", filename, count, suffix);
+    sprintf(buffer, "%s%.6d%s", filename, count, suffix);
   }
   cout << "Writing frame " << buffer << endl;
   imwrite(buffer, frame);
