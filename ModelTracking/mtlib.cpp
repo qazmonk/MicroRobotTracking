@@ -528,6 +528,7 @@ struct hole_node {
   int width;
   int d;
   int id;
+  int g, h, f;
   vector<hole_node*> children;
   vector<hole_node*> neighbors;
   int size;
@@ -575,8 +576,13 @@ struct hole_node_eq {
     return n1->id == n2->id;
   }
 };
+struct hole_node_astar_cmp {
+  bool operator()(hole_node* n1, hole_node* n2) {
+    return n1->f > n2->f;
+  }
+};
 bool cmp_hole_node(hole_node* n1, hole_node* n2) {
-  return n1->id > n2->id;
+  return n1->id < n2->id;
 }
 typedef unordered_map<hole_node_edge, int, hole_node_edge_hash> edge_hashmap;
 typedef unordered_map<hole_node*, hole_node*, hole_node_hash, hole_node_eq> vertex_hashmap;
@@ -591,54 +597,74 @@ void update_sizes(hole_node* root) {
   }
   root->size = sum + root->children.size();
 }
-
+int exterior_distance(int r, int c, int rows, int cols) {
+  return min(r, min(c, min(rows-1-r, cols-1-c)));
+}
 bool residual_path(hole_node* s, hole_node* t, int rows, int cols,
                    edge_hashmap * c, edge_hashmap * f, vertex_hashmap *parents) {
-  queue<hole_node*> q;
-  q.push(s);
-  bool discovered[rows][cols], discovered_end = false;
+
+  priority_queue<hole_node*, vector<hole_node*>, hole_node_astar_cmp> frontier;
+  bool visited[rows][cols], in_frontier[rows][cols];
   for (int r = 0; r < rows; r++) {
     for (int c = 0; c < cols; c++) {
-      discovered[r][c] = false;
+      visited[r][c] = false;
+      in_frontier[r][c] = false;
     }
   }
-  while (q.size() > 0 && !discovered_end) {
-    hole_node * u = q.front();
-    q.pop();
-    for (int i = 0; i < u->neighbors.size(); i++) {
-      int flow = f->find(hole_node_edge(u, u->neighbors[i]))->second;
-      int cap = (c->find(hole_node_edge(u, u->neighbors[i])))->second;
-      int cf = cap - flow;
-      bool d = false;
-      int node_type = 0;
-      if (u->neighbors[i]->id >= 0) 
-        d = discovered[u->neighbors[i]->r][u->neighbors[i]->c];
-      else if (u->neighbors[i] == s) {
-        d = true;
-        node_type = 1;
+  s->g = 0;
+  int min_dist = -1;
+  for (int i = 0; i < s->neighbors.size(); i++) {
+    int d = exterior_distance(s->r, s->c, rows, cols);
+    if (min_dist < 0 || d < min_dist) {
+      min_dist = d;
+    }
+  }
+  s->h = min_dist + 2;
+  s->f = s->h;
+  frontier.push(s);
+  bool t_in_frontier = false;
+  while(frontier.size()) {
+    hole_node * n_ptr = frontier.top();
+    hole_node n = *n_ptr;
+    if (n_ptr == t) {
+      return true;
+    } else {
+      frontier.pop();
+      if (n.id > 0) {
+        visited[n.r][n.c] = true;
+        in_frontier[n.r][n.c] = false;
       }
-      else if (u->neighbors[i] == t) {
-        d = false;
-        node_type = 2;
-      }
-      if (cf > 0 && !d) {
-        q.push(u->neighbors[i]);
-        parents->insert(pair<hole_node*,hole_node*>(u->neighbors[i], u));
-        switch (node_type) {
-        case 0:
-          discovered[u->neighbors[i]->r][u->neighbors[i]->c] = true;
-          break;
-        case 1:
-          break;
-        case 2:
-          discovered_end = true;
-        default:
-          break;
+      for (int i = 0; i < n.neighbors.size(); i++) {
+        hole_node * u = n.neighbors[i];
+        if (u != t && (u == s || visited[u->r][u->c])) continue;
+        int flow = (f->find(hole_node_edge(n_ptr, u)))->second;
+        int cap = (c->find(hole_node_edge(n_ptr, u)))->second;
+        int cf = cap - flow;
+        if (cf > 0) {
+          int t_g = n.g + 1;
+          if (u == t && (!t_in_frontier || t_g < t->g)) {
+            (*parents)[t] = n_ptr;
+            t->g = t_g;
+            t->f = t_g + 1;
+            if (!t_in_frontier) {
+              frontier.push(t);
+              t_in_frontier = true;
+            }
+          } else if (u == s) {
+          } else if (!in_frontier[u->r][u->c] || t_g < u->g) {
+            (*parents)[u] = n_ptr;
+            u->g = t_g;
+            u->f = t_g + exterior_distance(u->r, u->c, rows, cols) + 1;
+            if (!in_frontier[u->r][u->c]) {
+              frontier.push(u);
+              in_frontier[u->r][u->c] = true;
+            }
+          }
         }
       }
     }
   }
-  return discovered_end;
+  return false;
 }
 vector<hole_node*> residual_reachable(hole_node* s, edge_hashmap * c,
                                       edge_hashmap * f, int rows, int cols) {
@@ -719,7 +745,6 @@ vector<hole_node*> min_cut(vector<hole_node*> srcs, vector<hole_node*> tgts,
   //cout << "done construction graph" << endl;
   //cout << "running main loop" << endl;
   while (residual_path(s, t, rows, cols, &cap, &f, &p)) {
-    //cout << "found path " << p.size() << endl;
     vertex_hashmap::const_iterator cur_it = p.find(t);
     while (cur_it != p.end()) {
       hole_node * u = cur_it->first;
@@ -732,7 +757,6 @@ vector<hole_node*> min_cut(vector<hole_node*> srcs, vector<hole_node*> tgts,
     }
     p.clear();
   }
-  //cout << "computing cut" << endl;
   vector<hole_node*> cut = residual_reachable(s, &cap, &f, rows, cols);
   return cut;
 }
@@ -826,7 +850,6 @@ Mat close_holes(Mat frame, Point center, Rect bounding_box) {
                                                 bounding_box.width, 0);
         if (c == center.x - bounding_box.tl().x &&
             r == center.y - bounding_box.tl().y) {
-          cout << "reached center" << endl;
           start = graph[r*bounding_box.width + c];
         }
       }
@@ -837,8 +860,6 @@ Mat close_holes(Mat frame, Point center, Rect bounding_box) {
           cout << "given center is invalid" << endl;
           bool updated= false;
           for (int rp = r+1; rp < bounding_box.height; rp++) {
-            cout << (frame.at<uchar>(rp + bounding_box.tl().y, c + bounding_box.tl().x) == 255)
-                 << endl;
             if (frame.at<uchar>(rp + bounding_box.tl().y, c + bounding_box.tl().x) == 255)  {
               center = Point(c + bounding_box.tl().x, rp + bounding_box.tl().y);
               updated = true;
@@ -2392,3 +2413,7 @@ void mtlib::save_frame_safe(Mat frame, const char * filename, const char * suffi
   cout << "Writing frame " << buffer << endl;
   imwrite(buffer, frame);
 }
+
+
+
+

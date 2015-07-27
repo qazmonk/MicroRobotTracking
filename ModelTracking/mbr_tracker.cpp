@@ -326,27 +326,27 @@ int main(int argc, char* argv[]) {
       dmd_y = stoi(argv[i+4]);
       i += 4;
     } else if (strncmp(argv[i], "--help", 15) == 0) {
-      cout << "This is mbr_tracker, a utility to track microstructures"
-           << " in the MSRL and Lynch laboratories" << endl << endl;
-      cout << "\tThere are two arguments that must be given:" << endl
+      cout << "This is mbr_tracker, a utility to track and expose microstructures" 
+           << endl << endl;
+      cout << "There are two arguments that must be given:" << endl
            << "--expose/--mask, and --camera/--file. The first pair chooses" << endl
            << "whether you want to expose predified shapes on top of the MBRs" << endl
            << "or mask their contours. The second specifies camera or file" << endl
            << "input, the file input must be followed by the name of a video" << endl
-           << "file." << endl;
-      cout << "Other flags are:" << endl;
-      cout << "--bounds <integer> <integer>" << endl << right << setw(90)
-           << "Prechooses the area bounds for contour"
-        "filtering" << endl;
-      cout << "--write-video <filename>" << endl << right << setw(90)
-           << "Writes the input video to the specified filename"
+           << "file." << endl << endl;;
+      cout << "Most useful flags:" << endl << endl;
+      cout << left << setw(40) << "--bounds <int> <int>"
+           << "Prechooses the area bounds for contour filtering" << endl;
+      cout << left << setw(40) << "--write-video-hq <filename>"
+           << "Writes an image sequence the the specified folder (the folder" << endl
+           << setw(40) << " " << "will be created)"
            << endl; 
-      cout << "--write-data <filename>" << endl << setw(90)
-           << "Writes the data"
-        " of the tracked model to the specified filename" << endl;
-      cout <<"--dmd-args <integer> <integer> <integer> <integer>" << endl << setw(90)
-           << " Sets the width, height, x position, and y position" 
-           " of the output window" << endl;
+      cout << left << setw(40) << "--write-data <filename>"
+           << "Writes the data of the tracked model to the specified" << endl
+           << setw(40) << " " << "filename" << endl;
+      cout << left << setw(40) << "--dmd-args <int> <int> <int> <int>"
+           << "Sets the width, height, x position, and y position of the" << endl
+           << setw(40) << " " << "output window" << endl;
       return 0;
     }
   }
@@ -366,17 +366,19 @@ int main(int argc, char* argv[]) {
     char rsp;
     cin >> rsp;
     if (rsp != 'y') {
-      cout << "Restart the program with the '--write-video <filename>' flag" << endl;
+      cout << "Restart the program with the '--write-video-hq <filename>' flag" << endl;
       exit(0);
     }
   }
   dmd_size = Size(dmd_w, dmd_h);
   if (!input_given) {
     cout << "Must specify input using '--file' or '--camera'" << endl;
+    cout << "Run 'mbr_tracker --help' for help with this program." << endl;
     return 0;
   }
   if (!exposure_given) {
     cout << "Must specify exposure type using '--expose' or '--mask'" << endl;
+    cout << "Run 'mbr_tracker --help' for help with this program." << endl;
     return 0;
   }
   Mat frame0;
