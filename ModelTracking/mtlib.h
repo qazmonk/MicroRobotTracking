@@ -11,7 +11,7 @@
 
 namespace mtlib {
   enum mask_t { NOMASK, MQUAD_LL, MQUAD_LR, MQUAD_UL, MQUAD_UR, MHALF_L, MHALF_R,
-                MHALF_U, MHALF_D, MT_MAX = MHALF_D };
+                MHALF_U, MHALF_D, MFILLED, MT_MAX = MFILLED };
   enum exposure_t { NOEXP, EQUAD_LL, EQUAD_LR, EQUAD_UL, EQUAD_UR, EHALF_L, EHALF_R,
                 EHALF_U, EHALF_D, ET_MAX = EHALF_D };
   class Model {
@@ -62,12 +62,12 @@ namespace mtlib {
     int curTime();
     //draws the contour of this model at some time index t in the given color
     //on the image dst
-    void drawContour(cv::Mat dst, int t, cv::Scalar color=cv::Scalar(255, 255, 255));
+    void drawContour(cv::Mat dst, int t=-1, cv::Scalar color=cv::Scalar(255, 255, 255));
     //draws the exposure of this model at some time index t on the image dst
-    void drawExposure(cv::Mat dst, int t);
+    void drawExposure(cv::Mat dst, int t=-1);
     //draws a dot for the center and a line for the orientation at some time 
     //index t on the image dst
-    void drawModel(cv::Mat dst, int t);
+    void drawModel(cv::Mat dst, int t=-1);
     //Draws a black mask over the appropriate region on the given matrix at time
     //index t. Note: does not actually draw the contour, it only 'erases' the contour
     //if it's already drawn in the right position
@@ -290,7 +290,9 @@ namespace mtlib {
   //saves the fiven frame with the given filename and suffix adding numbers to avoid
   //ovewriting files
   void save_frame_safe(cv::Mat, const char*, const char*);
-
+  //Sets the name for outputting figures from internal routines. Not for use by anyone other
+  //than Nate.
+  void set_output_figure_name(std::string);
 }
 
 #endif

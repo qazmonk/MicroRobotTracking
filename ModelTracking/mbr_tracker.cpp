@@ -30,7 +30,7 @@ unsigned long current_time=0;
 pthread_mutex_t frame_mutex, output_mutex, flag_mutex, models_mutex, cont_frame_mutex,
   frame_count_mutex;
 bool new_frame = false, new_output = false, kill_proccessing = false, capturing = false;
-bool outputting = false, writing = false, writing_hq = false;
+bool outputting = false, writing = false, writing_hq = false, use_hole_closing = false;
 vector<Model> models;
 vector<bool> selected, exposing;
 Size frame_size;
@@ -41,6 +41,7 @@ bool masking = false;
 bool perspective = false;
 VideoWriter output_cap;
 char video_hq_prefix[50];
+int dmd_intensity = 100;
 const char * output_file_prefix, *output_file_suffix, *output_folder;
 
 unsigned long time_milliseconds() {
@@ -48,14 +49,19 @@ unsigned long time_milliseconds() {
     (chrono::system_clock::now().time_since_epoch()).count();
 }
 void dmd_imshow(Mat im) {
-  
+  float scale = ((float)dmd_intensity)/100;  
+  im *= scale;
   Mat inv;
   bitwise_not(im, inv);
   Mat warped(Size(dmd_w, dmd_h), CV_8UC3);
   Mat expanded = expandForDMD(inv, dmd_w, dmd_h);
   warpPerspective(expanded, warped, warp_mat, warped.size(),
                   INTER_LINEAR, BORDER_CONSTANT, Scalar(255, 255, 255));
-  imshow("DMD", warped);
+  Mat blurred;
+  blur(warped, blurred, Size(6, 6));
+
+
+  imshow("DMD", blurred);
 }
 long capture_from_video(Mat * dst) {
   usleep(20000);
@@ -185,6 +191,7 @@ void process_output() {
   /*pthread_mutex_lock(&cont_frame_mutex);
   current_cont_frame = dst2.clone();
   pthread_mutex_unlock(&cont_frame_mutex);*/
+  cout << "Processed output" << endl;
   t = time_milliseconds();
   dmd_imshow(dst);
   imshow("Tracking", dst2);
@@ -234,7 +241,7 @@ void* process_input(void*) {
     if (new_frame_copy) {
 
       pthread_mutex_lock(&models_mutex);
-      updateModels(frame.clone(), &models, minArea, maxArea, false, timestamp);
+      updateModels(frame.clone(), &models, minArea, maxArea, use_hole_closing, timestamp);
       t2 = time_milliseconds();
       imshow("Camera", frame);
       if (outputting_copy) {
@@ -274,7 +281,7 @@ void* process_input(void*) {
 int main(int argc, char* argv[]) {
   Model::init();
   bool using_camera = false, input_given = false, exposure_given = false;
-  bool writing_data = false;
+  bool writing_data = false, use_hole_closing_copy = false;
   char *data_file;
   int  dmd_x = 39, dmd_y = 1400;
   dmd_w = 608;
@@ -325,6 +332,8 @@ int main(int argc, char* argv[]) {
       dmd_x = stoi(argv[i+3]);
       dmd_y = stoi(argv[i+4]);
       i += 4;
+    } else if (strncmp(argv[i], "--close-holes", 15) == 0) {
+      use_hole_closing_copy = true;
     } else if (strncmp(argv[i], "--help", 15) == 0) {
       cout << "This is mbr_tracker, a utility to track and expose microstructures" 
            << endl << endl;
@@ -359,7 +368,13 @@ int main(int argc, char* argv[]) {
     time(&rawtime);
     timeinfo = localtime(&rawtime);
     strftime(buff,80,"tracking_output-%m-%d-%Y-%H:%M", timeinfo);
-    data_file = buff;
+    char buff2[80];
+    if (writing_hq) {
+      sprintf(buff2, "%s/%s", output_folder, buff);
+      data_file = buff2;
+    } else {
+      data_file = buff;
+    }
   }
   if (!writing && !writing_hq) {
     cout << "Are you sure you don't want to save a video? (y/n): " << endl;
@@ -502,6 +517,7 @@ int main(int argc, char* argv[]) {
  
   dmd_imshow(black);
   namedWindow("Tracking", CV_WINDOW_AUTOSIZE);
+  createTrackbar("Intensity", "Tracking", &dmd_intensity, 100);
   namedWindow("Camera", CV_WINDOW_AUTOSIZE);
   setMouseCallback("Tracking", selectExposuresCallback, 0);
   /* START CAPTURING AND PROCESSING INPUT */
@@ -548,6 +564,7 @@ int main(int argc, char* argv[]) {
   }
   models = selected_models2;
   exposing = vector<bool>(models.size(), false);
+  use_hole_closing = use_hole_closing_copy;
   /* RESTART PROCESSING */
   cout << "restarting processing" << endl;
   if (writing) {
@@ -561,12 +578,20 @@ int main(int argc, char* argv[]) {
   while(capturing) {
     if (waitKey(0) == 'x') {
       cout << "Got x" << endl;
+      pthread_mutex_lock(&flag_mutex);
       capturing = false;
+      kill_proccessing = true;
+      pthread_mutex_unlock(&flag_mutex);
     }
   }
   rc = pthread_join(cap_thread, &status);
   if (rc) { 
     printf("ERROR: return code from cap_thread is %d\n", rc);
+    exit(-1);
+  }
+  rc = pthread_join(proc_thread, &status);
+  if (rc) { 
+    printf("ERROR: return code from proc_thread is %d\n", rc);
     exit(-1);
   }
   if (writing_data) {

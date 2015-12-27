@@ -85,7 +85,7 @@ int main(int argc, char* argv[]) {
   captureVideo(argv[1], &video, &fps, &S, &ex);
 
   bool write = false, partialComp = false, light = false;
-  int numFrames = video.size(), startFrame = 0;
+  int numFrames = video.size(), startFrame = 0, save_frame = -1;
   char* output_folder;
   int light_on = -1;
   for (int i = 2; i < argc; i++) {
@@ -109,6 +109,10 @@ int main(int argc, char* argv[]) {
     }
     else if (strncmp(argv[i], "--light_on", 12) == 0) {
       light_on = stoi(argv[i+1]);
+      i++;
+    }
+    else if (strncmp(argv[i], "--save_frame", 14) == 0) {
+      save_frame = stoi(argv[i+1]);
       i++;
     }
   }
@@ -204,20 +208,22 @@ int main(int argc, char* argv[]) {
     int avg_x = 0;
     for (int i = 0; i < cart_maxs.size(); i++) {
       if (cart_maxs[i].x >= 0 && cart_maxs[i].x < cart.cols &&
-	  cart_maxs[i].y >= 0 && cart_maxs[i].y < cart.rows) {
-	cart.at<Vec3b>(cart_maxs[i]) = Vec3b(0, 255, 0);
+          cart_maxs[i].y >= 0 && cart_maxs[i].y < cart.rows)
+      {
+        cv::circle(cart, cart_maxs[i], 5, Scalar(0, 255, 0));
       }
-      polar.at<Vec3b>(maxs[i]) = Vec3b(0, 255, 0);
+      cv::circle(polar, maxs[i], 5, Scalar(0, 255, 0));
       avg_x += maxs[i].x;
     }
     avg_x = avg_x/maxs.size();
     //generate the best fit maximums for
     vector<Point2i> best_fit_maxs;
     for (int i = 0; i < 12; i++) {
-      polar.at<Vec3b>(Point2i(circle.z, i*mtlib::SEP+phase)) = Vec3b(0, 0, 255);
+      cv::circle(polar, Point2i(circle.z, i*mtlib::SEP+phase), 5, Scalar(0, 0, 255));
+      //polar.at<Vec3b>(Point2i(circle.z, i*mtlib::SEP+phase)) = Vec3b(0, 0, 255);
       best_fit_maxs.push_back(Point2i(circle.z, i*mtlib::SEP+phase));
-      if (i == top) 
-	cv::circle(polar, Point(maxs[i].x, i*mtlib::SEP+phase), 5, Scalar(255, 255, 0), 2);
+      /*if (i == top) 
+        cv::circle(polar, Point(maxs[i].x, i*mtlib::SEP+phase), 5, Scalar(255, 255, 0), 2);*/
     }
     vector<Point2i> cart_best_fit_maxs = polarToLinear(best_fit_maxs, c, cart.rows);
 
@@ -225,9 +231,7 @@ int main(int argc, char* argv[]) {
     for (int i = 0; i < 12; i++) {
       if (cart_best_fit_maxs[i].x >= 0 && cart_best_fit_maxs[i].x < cart.cols &&
 	  cart_best_fit_maxs[i].y >= 0 && cart_best_fit_maxs[i].y < cart.rows) {
-	cart.at<Vec3b>(cart_best_fit_maxs[i]) = Vec3b(0, 0, 255);
-	if (i == top) 
-	  cv::circle(cart, cart_best_fit_maxs[i], 5, Scalar(255, 255, 0), 2);
+        cv::circle(cart, cart_best_fit_maxs[i], 5, Scalar(0, 0, 255));
       }
     }
     //draw the best fit curcle
@@ -240,6 +244,10 @@ int main(int argc, char* argv[]) {
     //cout << "done " << i << "/" << video.size() << endl;
     cout << c.x << " " << c.y << " " << getGearRotation(cart_best_fit_maxs[top], c) << endl;
     lastPhase = phase;
+    
+    if (n == save_frame) {
+      mtlib::save_frame_safe(comb, "gear_figure", ".png");
+    }
   }
   if (write) writeVideo(output_folder, out, fps);
   createTrackbar("Scrubbing", "Polar", &pos, out.size()-1, scrub);

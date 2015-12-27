@@ -95,7 +95,7 @@ int main(int argc, char* argv[]) {
       tmp = tmp2.clone();
     }
     Mat tmp_scaled;
-    resize(tmp, tmp_scaled, Size(), 0.5, 0.5, CV_INTER_AREA);
+    resize(tmp, tmp_scaled, Size(), 0.75, 0.75, CV_INTER_AREA);
     out.push_back(tmp_scaled);
   }
   if (!debug) {

@@ -18,21 +18,51 @@ using namespace mtlib;
 
 int fps, ex, pos = 0;
 Size S;
-vector<Mat> video;  
+vector<Mat> video;
+char buff[50];
+
+const char * make_filename(const char * prefix, const char * name) {
+  sprintf(buff, "%s-%s", prefix, name);
+  return buff;
+}
 int main(int argc, char* argv[]) {
   Mat frame;
+  const char * output_prefix = argv[1];
   for (int i = 1; i < argc; i++) {
     if (strncmp(argv[i], "--video", 10) == 0) {
-      captureVideo(argv[i+1], &video, &fps, &S, &ex);
-      frame = video[stoi(argv[i+2])];
+      int frame_num = stoi(argv[i+2]);
+      captureVideo(argv[i+1], &video, &fps, &S, &ex, frame_num+1);
+      frame = video[frame_num];
       i += 2;
     } else if (strncmp(argv[i], "--picture", 15) == 0) {
       frame = imread(argv[i+1], CV_LOAD_IMAGE_COLOR);
       i++;
     }
   }
-  /*save_frame_safe(frame, "original", ".png");
-  vector<Mat> rgb;
+  vector<mtlib::Model> models;
+  int minArea = 500, maxArea = 25000;
+  mtlib::generateModels(frame, &models, minArea, maxArea);
+  vector<int> selected =  mtlib::selectObjects(frame, &models);
+  vector<mtlib::Model> selectedModels;
+  for (int i = 0; i < selected.size(); i++) {
+    selectedModels.push_back(models[selected[i]]);
+  }
+  models = selectedModels;
+  mtlib::set_output_figure_name(make_filename(output_prefix, "roi-identified"));
+  mtlib::updateModels(frame, &models, minArea, maxArea);
+  //save_frame_safe(frame, make_filename(output_prefix, "original"), ".png");
+  /*Mat gray, blurred, edges;
+  cvtColor(frame, gray, CV_BGR2GRAY);
+  
+  blur(gray, blurred, Size(3, 3));
+  int low_threshold = 5;
+  Canny(blurred, edges, low_threshold, low_threshold*3, 3);
+
+  Mat edges_color, comb;
+  cvtColor(edges, edges_color, CV_GRAY2BGR);
+  combineHorizontal(comb, frame, edges_color);
+  save_frame_safe(comb, make_filename(output_prefix, "canny"), ".png");
+  /*vector<Mat> rgb;
   split(frame, rgb);
   rgb[0].setTo(0);
   merge(rgb, frame);

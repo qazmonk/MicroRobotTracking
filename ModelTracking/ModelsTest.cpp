@@ -27,12 +27,12 @@ void scrub(int, void*);
 int main(int argc, char* argv[]) {
   Model::init();
 
-  bool write = false, partialComp = true, write_hq = false;
+  bool write_data = false, write = false, partialComp = true, write_hq = false;
   int endFrame = 0, startFrame = 0;
-  char* output_folder, *video_folder;
+  char* output_folder, *video_folder, *data_file;
   int minArea = -1;
   int maxArea = -1;
-
+  int models_from = -1;
   for (int i = 0; i < argc; i++) {
     if (strncmp(argv[i], "-c", 2) == 0) {
       mtlib::setDefaultChannel(stoi(argv[i+1]));
@@ -59,8 +59,16 @@ int main(int argc, char* argv[]) {
       video_folder = argv[i+1];
       write_hq = true;
       i++;
+    } else if (strncmp(argv[i], "--write-data", 20) == 0) {
+      data_file = argv[i+1];
+      write_data = true;
+      i++;
+    } else if (strncmp(argv[i], "--models-from", 20) == 0) {
+      models_from = stoi(argv[i+1]);
+      i++;
     }
   }
+  if (models_from < 0) models_from = startFrame;
   cout << "reading file..." << endl;
   if (endFrame <= startFrame) {
     captureVideo(argv[1], &video, &fps, &S, &ex);
@@ -75,14 +83,14 @@ int main(int argc, char* argv[]) {
   showHist("tmp", tmpv);*/
 
   if (minArea < 0 || maxArea < 0 || minArea > maxArea) {
-    Point minMax = getMinAndMaxAreas(video[startFrame]);
+    Point minMax = getMinAndMaxAreas(video[models_from]);
     minArea = minMax.x;
     maxArea = minMax.y;
   }
   out.reserve(video.size());
  
   cout << "generating models..." << flush;
-  mtlib::generateModels(video[startFrame], &models, minArea, maxArea);
+  mtlib::generateModels(video[models_from], &models, minArea, maxArea);
   cout << "done" << endl;
   vector<int> selected =  mtlib::selectObjects(video[startFrame], &models);
   vector<mtlib::Model> selectedModels;
@@ -98,10 +106,10 @@ int main(int argc, char* argv[]) {
 
     t = clock();
     
-    if (i > startFrame) {
+    //if (i > startFrame) {
       cout << "calculating frame " << i << endl;
       updateModels(video[i], &models, minArea, maxArea, true);
-    }
+      //}
 
     vector< vector<Point> > contours;
 
@@ -136,11 +144,19 @@ int main(int argc, char* argv[]) {
     combineHorizontal(dst_fin2, filtered_color, contour_img);
     combineVertical(dst_fin1, dst_fin0, dst_fin2);
     Mat dst_fin;
-    resize(dst_fin1, dst_fin, Size(), 0.75, 0.75, CV_INTER_AREA);
+    resize(dst_fin1, dst_fin, Size(), 0.9, 0.9, CV_INTER_AREA);
     out.push_back(dst_fin);
     
   }
-  
+  if (write_data) {
+    string data_name = safe_filename(data_file, ".csv");
+    cout << "Writing data to " << data_name << endl;
+    ofstream data_file_stream;
+    data_file_stream.open(data_name, ios::out);
+    for (int n = 0; n < models.size(); n++) {
+      models[n].write_data(&data_file_stream);
+    }
+  }
   if (write) { writeVideo(output_folder, out, fps); }
   if (write_hq) {
     mkdir(video_folder, 0755);
